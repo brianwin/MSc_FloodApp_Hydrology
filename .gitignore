@@ -19,6 +19,7 @@ instance/
 
 # Logs
 *.log
+floodWatch.log.*
 
 # Archived data
 data/
