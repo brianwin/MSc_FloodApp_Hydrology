@@ -1,6 +1,0 @@
-2025-07-21 18:12:33,799  - INFO     - __init__.py    :33   - create_app                     - FloodWatch startup
-2025-07-21 18:15:36,298  - INFO     - __init__.py    :33   - create_app                     - FloodWatch startup
-2025-07-21 18:16:08,764  - INFO     - hydrology_readings.py:86   - get_hydrology_readings         - Removed existing file: f:/hydrology/hydro-2025-07-01.csv
-2025-07-21 18:16:09,120  - INFO     - hydrology_readings.py:94   - get_hydrology_readings         - Fetched http://environment.data.gov.uk/hydrology/data/readings.csv?_view=full&_limit=1000000&date=2025-07-01
-2025-07-21 18:16:27,006  - INFO     - hydrology_readings.py:101  - get_hydrology_readings         - Saved: f:/hydrology/hydro-2025-07-01.csv
-2025-07-21 21:47:21,190  - INFO     - __init__.py    :33   - create_app                     - FloodWatch startup
