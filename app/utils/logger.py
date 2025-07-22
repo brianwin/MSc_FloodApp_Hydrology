@@ -1,8 +1,5 @@
 import logging
 from logging.handlers import TimedRotatingFileHandler    #' RotatingFileHandler
-#import psycopg2
-#from psycopg2 import OperationalError
-#from datetime import datetime, timezone
 
 from .db_logger import PostgresWorker, QueuePostgresHandler
 from queue import Queue
@@ -26,12 +23,12 @@ def get_dsn_kwargs() -> dict:
 
 def setup_logging():
     # Create a logger object
-    logger = logging.getLogger('floodWatch2')
+    logger = logging.getLogger('floodWatch3')
     logger.setLevel(logging.DEBUG)  # You can control the global level here
 
     # Start background DB writer
-    #worker = PostgresWorker(dsn_kwargs=get_dsn_kwargs(), queue=_log_queue, stop_event=_stop_event)
-    #worker.start()
+    worker = PostgresWorker(dsn_kwargs=get_dsn_kwargs(), queue=_log_queue, stop_event=_stop_event)
+    worker.start()
 
     # Formatter: include timestamp, level, and message
     #formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
@@ -42,7 +39,7 @@ def setup_logging():
     # ---- File Handler ----
     #file_handler = logging.FileHandler('floodWatch.log')
     #file_handler = RotatingFileHandler('floodWatch.log', maxBytes=5*1024*1024, backupCount=3) # 5MB per file, keep last 3 backups
-    file_handler = TimedRotatingFileHandler('floodWatch.log', when='midnight', interval=1, backupCount=7)  # Rotate every midnight, keep last 7 days
+    file_handler = TimedRotatingFileHandler('floodWatch3.log', when='midnight', interval=1, backupCount=7)  # Rotate every midnight, keep last 7 days
     file_handler.setLevel(logging.INFO)  # Only log INFO and above to file
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
@@ -54,10 +51,10 @@ def setup_logging():
     logger.addHandler(console_handler)
 
     # Queue handler for DB logging
-    #db_handler = QueuePostgresHandler(_log_queue)
-    #db_handler.setLevel(logging.DEBUG)
-    #db_handler.setFormatter(logging.Formatter('%(message)s'))
-    #logger.addHandler(db_handler)
+    db_handler = QueuePostgresHandler(_log_queue)
+    db_handler.setLevel(logging.DEBUG)
+    db_handler.setFormatter(logging.Formatter('%(message)s'))
+    logger.addHandler(db_handler)
 
     return logger
     # ---- Usage Example ----

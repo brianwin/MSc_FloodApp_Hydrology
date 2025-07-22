@@ -23,7 +23,7 @@ import logging
 from osgeo.osr import CoordinateTransformation
 
 # 🔥 Get the same logger
-logger = logging.getLogger('floodWatch')
+logger = logging.getLogger('floodWatch3')
 
 def get_area_colors(all_eaareanames):
     logger.debug(">")

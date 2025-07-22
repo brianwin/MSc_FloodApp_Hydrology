@@ -1,5 +1,5 @@
 from app.extensions import db
-from sqlalchemy import text, PrimaryKeyConstraint, Column, DateTime, Date, String, Numeric
+from sqlalchemy import text, PrimaryKeyConstraint, Column, DateTime, Date, String, Integer, Numeric
 
 class Reading_Hydro(db.Model):
     __tablename__ = 'reading_hydro'
@@ -15,7 +15,22 @@ class Reading_Hydro(db.Model):
     r_date       = Column(Date)
     measure      = Column(String)
     notation     = Column(String)
+
+    station_id      = Column(String)
+    parameter_name  = Column(String)
+    parameter       = Column(String)
+    qualifier       = Column(String)
+    value_type      = Column(String)
+    period_name     = Column(String)
+    period          = Column(Integer)
+    unit_name       = Column(String)
+    observation_type= Column(String)
+    datumtype       = Column(String)
+    label           = Column(String)
+    stationreference= Column(String)
+
     value        = Column(Numeric(15, 3))
+
     completeness = Column(String)
     quality      = Column(String)
     qcode        = Column(String)

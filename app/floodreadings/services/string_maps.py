@@ -1,5 +1,5 @@
 import logging
-logger = logging.getLogger('floodWatch2')
+logger = logging.getLogger('floodWatch3')
 
 datumtype_map = {
     'mAOD' : '{root}/def/core/datumAOD',
@@ -15,11 +15,14 @@ period_map = {
     '1_h'   : 3600,
     'Unspecified': 0
 }
-default_period_map = 86400
+#default_period_map = just return original string
+#default_period_map = 86400
 
 valuetype_map = {
     'i': 'instantaneous',
     't': 'total',
+    'max': 'max',
+    'min': 'min',
     'Mean': 'mean',
     'Event': 'event',
     'Cumulative_Total': 'cumulative total'
@@ -49,7 +52,7 @@ def get_datumtype_for_db(key:str) -> str:
     return datumtype_map.get(key, default_datumtype_map)
 
 def get_period_for_db(key: str) -> int:
-    return period_map.get(key, default_period_map)
+    return period_map.get(key, key)
 
 def get_valuetype_for_db(key: str) -> str:
     return valuetype_map.get(key, key)

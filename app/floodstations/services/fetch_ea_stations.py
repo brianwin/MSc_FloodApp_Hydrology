@@ -18,7 +18,7 @@ from ..models import (
 )
 
 import logging
-logger = logging.getLogger('floodWatch2')
+logger = logging.getLogger('floodWatch3')
 
 ea_root_url = 'http://environment.data.gov.uk/flood-monitoring'
 

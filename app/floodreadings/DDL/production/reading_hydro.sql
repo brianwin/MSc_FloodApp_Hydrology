@@ -6,7 +6,22 @@ CREATE TABLE IF NOT EXISTS production.reading_hydro (
 	r_date date,
 	measure TEXT NOT NULL,
 	notation TEXT NOT NULL,
+
+    station_id TEXT,
+	parameter_name TEXT,
+	"parameter" TEXT,
+	qualifier TEXT,
+	value_type TEXT,
+	period_name TEXT,
+    period int,
+	unit_name TEXT,
+	observation_type TEXT,
+    datum_type TEXT,
+	"label" TEXT,
+	stationreference TEXT,
+
 	value numeric(15, 3),
+
     completeness TEXT,
     quality TEXT,
     qcode TEXT,
@@ -14,8 +29,6 @@ CREATE TABLE IF NOT EXISTS production.reading_hydro (
     invalid	TEXT,
     missing TEXT
 );
-
-
 
 
 alter table reading_hydro

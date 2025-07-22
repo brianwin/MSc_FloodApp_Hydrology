@@ -21,11 +21,11 @@ import datetime
 from dateutil.parser import parse
 
 from app import db
-from ..models import Reading, Reading_Concise, Reading_Recent
+from ..models import Reading  #, Reading_Concise, Reading_Recent
 from app.floodstations.models.station import Station
 
 import logging
-logger = logging.getLogger('floodWatch2')
+logger = logging.getLogger('floodWatch3')
 
 # annotate the proxy so the IDE knows its real type
 from werkzeug.local import LocalProxy
@@ -196,6 +196,7 @@ def insert_chunk(chunk_df: pd.DataFrame,
                 label = stn_labels.get(stationreference) if stn_labels else None
 
                 if update_recent:
+                    '''
                     reading = Reading_Recent(
                         source=ea_datasource,
                         r_datetime = r_datetime,
@@ -214,7 +215,9 @@ def insert_chunk(chunk_df: pd.DataFrame,
                         valuetype = valuetype,
                         value=val,
                     )
+                    '''
                 else:
+                    '''
                     reading = Reading_Concise(
                         source=ea_datasource,
                         r_datetime = r_datetime,
@@ -233,6 +236,7 @@ def insert_chunk(chunk_df: pd.DataFrame,
                         valuetype = valuetype,
                         value=val,
                     )
+                    '''
             else:
 
                 # handles missing or None/NaN values in period column - sets all of these to 0
@@ -245,6 +249,7 @@ def insert_chunk(chunk_df: pd.DataFrame,
                         period = int(float(period_str))
                 except (ValueError, TypeError):
                     period = 0
+
 
                 reading = Reading(
                     source=ea_datasource,
@@ -267,37 +272,7 @@ def insert_chunk(chunk_df: pd.DataFrame,
 
             readings.append(reading)  # whether "reading" came from "concise" or "full" section
 
-        #logger.info(f'Chunk {chunk_num}: generated')
-        #logger.debug(f"Readings generated: {readings[:2]}")  # Print first two for inspection
-        #t0 = time.perf_counter()
-        #session.add_all(readings)
-        if update_recent:
-            # convert to a dict of update values for the update (to immutable object) mechanism to work here
-            #logger.info(f"Converting to dict")
-            update_dicts = [
-                {
-                    "stationreference": r.stationreference,
-                    "r_datetime": r.r_datetime,
-                    "measure": r.measure,
-                    "x_measure": r.x_measure,
-                    "value": r.value,
-                    "label": r.label,
-                    "parameter": r.parameter,
-                    "qualifier": r.qualifier,
-                    "datumtype": r.datumtype,
-                    "period": r.period,
-                    "unitname": r.unitname,
-                    "valuetype": r.valuetype,
-                    "source": r.source,
-                    "r_date": r.r_date,
-                    "r_month": r.r_month,
-                    "station": r.station,
-                }
-                for r in readings
-            ]
-            session.bulk_update_mappings(Reading_Recent, update_dicts)
-        else:
-            session.bulk_save_objects(readings)
+        session.bulk_save_objects(readings)
         session.commit()
         #t1 = time.perf_counter()
         #logger.info(f"DB insert time for chunk {chunk_num}: {t1 - t0:.2f}s")
@@ -368,7 +343,8 @@ def delete_readings_by_r_datetime(start_date, end_date, concise:bool = True):
 
     date_range = start_date if end_date == start_date else f"{start_date} to {end_date}"
     if concise:
-        model = Reading_Concise
+    #    model = Reading_Concise
+        pass
     else:
         model = Reading
 
@@ -390,7 +366,8 @@ def get_start_end_dates(concise:bool = True, upto:int = 7) -> [datetime.date, da
     # Step 1: Get max r_date in the DB
     db.session.remove()
     if concise:
-        max_r_date = db.session.query(func.max(Reading_Concise.r_datetime)).scalar()
+    #    max_r_date = db.session.query(func.max(Reading_Concise.r_datetime)).scalar()
+        pass
     else:
         max_r_date = db.session.query(func.max(Reading.r_datetime)).scalar()
 

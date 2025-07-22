@@ -4,7 +4,7 @@ from flask import Flask
 from app.extensions import db
 from app.utils.logger import setup_logging
 from config import DevelopmentConfig, ProductionConfig
-from .floodreadings.models import Reading_Merged, Reading_Recent
+from .floodreadings.models import Reading_Hydro
 
 from .utils.logger import stop_logging
 #from utils.db_logger import PostgresWorker
@@ -52,10 +52,7 @@ def create_app(config_class=DevelopmentConfig):
             FloodareaMetrics
         )
         from app.floodreadings.models import (
-            Reading,
-            Reading_Concise,
-            Reading_Merged,
-            Reading_Recent
+            Reading_Hydro
         )
         db.create_all()
 
@@ -81,22 +78,10 @@ def create_app(config_class=DevelopmentConfig):
     from app.cli import (
         load_station_data_command,
         load_floodarea_data_command,
-        #update_hist_reading_data_concise_command,
-        #update_hist_reading_data_full_command,
-        parallel_update_hist_reading_data_concise_command,
-        parallel_update_hist_reading_data_full_command,
-        merge_pending_days_command,
-        update_recent_readings_command,
         get_hydrology_data_command
     )
     app.cli.add_command(load_station_data_command)
     app.cli.add_command(load_floodarea_data_command)
-    #app.cli.add_command(update_hist_reading_data_concise_command)
-    #app.cli.add_command(update_hist_reading_data_full_command)
-    app.cli.add_command(parallel_update_hist_reading_data_concise_command)
-    app.cli.add_command(parallel_update_hist_reading_data_full_command)
-    app.cli.add_command(merge_pending_days_command)
-    app.cli.add_command(update_recent_readings_command)
     app.cli.add_command(get_hydrology_data_command)
 
     @app.teardown_appcontext

@@ -12,10 +12,10 @@ import time
 from collections import Counter
 
 from flask import current_app
-import click
+#import click
 from sqlalchemy.orm import scoped_session, sessionmaker
 from sqlalchemy.sql import func
-from sqlalchemy import text
+#from sqlalchemy import text
 from concurrent.futures import ThreadPoolExecutor
 
 #from datetime import date, datetime, timedelta, timezone
@@ -27,7 +27,7 @@ from ..models import Reading_Hydro
 from app.floodstations.models.station import Station
 
 import logging
-logger = logging.getLogger('floodWatch2')
+logger = logging.getLogger('floodWatch3')
 
 # annotate the proxy so the IDE knows its real type
 from werkzeug.local import LocalProxy
@@ -351,19 +351,20 @@ def insert_chunk(chunk_df: pd.DataFrame,
         for _, row in chunk_df.iterrows():
 
             dtm = row.get("dateTime")
-            if isinstance(dtm, str):  # as it is when read from a csv file
+            if isinstance(dtm, str):  # a string (as it is when read from a csv file)
                 r_datetime = parse(dtm)
             elif pd.notnull(dtm):
-                r_datetime = dtm  # already a datetime (as it is when read from database table)
+                r_datetime = dtm  # already a datetime (as it is when read from a database table)
             else:
                 r_datetime = None
 
-            #r_datetime = parse(row["dateTime"]) if row.get("dateTime") else None
             r_month = r_datetime.replace(day=1).date() if r_datetime else None
             #r_date  = r_datetime.date() if r_datetime else None
 
             measure = row.get("measure", '')
             notation = measure.replace(f'{ea_root_url}/id/measures/', '').strip() if isinstance(measure, str) else None
+
+            parsed = parse_notation(notation)
 
             val, status = parse_float_safe(row.get("value"))
             status_counter[status] += 1
@@ -379,21 +380,36 @@ def insert_chunk(chunk_df: pd.DataFrame,
             except (ValueError, TypeError):
                 period = 0
 
-            reading = Reading_Hydro(
-                source=ea_datasource,
-                r_datetime = r_datetime,
-                r_month= r_month,
-                r_date=row.get("date"),
-                measure = measure,
-                notation = notation,
-                value = val,
-                completeness = row.get("completeness"),
-                quality = row.get("quality"),
-                qcode = row.get("qcode"),
-                valid = row.get("valid"),
-                invalid = row.get("invalid"),
-                missing = row.get("missing")
-            )
+            reading = {
+                'source' : ea_datasource,
+                'r_datetime' : r_datetime,
+                'r_month' : r_month,
+                'r_date' : row.get("date"),
+
+                'measure' : measure,
+                'notation' : notation,
+
+                # Value
+                'value' : val,
+
+                # Data quality attributes
+                'completeness' : row.get("completeness"),
+                'quality' : row.get("quality"),
+                'qcode' : row.get("qcode"),
+                'valid' : row.get("valid"),
+                'invalid' : row.get("invalid"),
+                'missing' : row.get("missing"),
+
+                # Parsed "notation" fields (from "measure" in sources data)
+                'station_id': parsed.get("station_id") if parsed else None,
+                'parameter_name': parsed.get("parameter_name") if parsed else None,
+                'parameter': parsed.get("parameter") if parsed else None,
+                'qualifier': parsed.get("qualifier") if parsed else None,
+                'value_type': parsed.get("value_type") if parsed else None,
+                'period_name': parsed.get("period_name") if parsed else None,
+                'unit_name': parsed.get("unit_name") if parsed else None,
+                'observation_type': parsed.get("observation_type") if parsed else None
+            }
 
             readings.append(reading)  # whether "reading" came from "concise" or "full" section
 
@@ -401,7 +417,7 @@ def insert_chunk(chunk_df: pd.DataFrame,
         #logger.debug(f"Readings generated: {readings[:2]}")  # Print first two for inspection
         #t0 = time.perf_counter()
         #session.add_all(readings)
-        session.bulk_save_objects(readings)
+        session.bulk_insert_mappings(Reading_Hydro, readings)
         session.commit()
         #t1 = time.perf_counter()
         #logger.info(f"DB insert time for chunk {chunk_num}: {t1 - t0:.2f}s")
@@ -414,3 +430,69 @@ def insert_chunk(chunk_df: pd.DataFrame,
         #logger.info(f"Chunk {chunk_num} value statuses: {dict(status_counter)}")
         return status_counter
 
+
+
+def parse_notation(notation):
+    parts = notation.rsplit('-', 10)
+    n_dashes = len(parts) - 1
+    try:
+        if n_dashes == 3:
+            # example
+            # E01591A-ph-i-subdaily
+            return {
+                'station_id': parts[0],
+                'parameter': parts[1],
+                'value_type': parts[2],
+                'period_name': parts[3]
+            }
+        elif n_dashes == 4:
+            # example
+            # E02763A-bga-i-subdaily-rfu
+            return {
+                'station_id': parts[0],
+                'parameter': parts[1],
+                'value_type': parts[2],
+                'period_name': parts[3],
+                'unit_name': parts[4]
+            }
+        elif n_dashes == 9:
+            # example
+            # ac462a74-4fe2-41d7-a35b-e51ffd6c9a0f-level-i-900-m-qualified
+            # 2c14fcb6-21f3-47ca-8e50-14c68d23e5fb_SE52HCL1SS-gw-dipped-i-mAOD-qualified
+            if '-'.join(parts[5:7]) == 'gw-dipped':
+                return {
+                    'station_id': '-'.join(parts[:5]),
+                    'parameter': parts[5],
+                    'qualifier': parts[6],
+                    'value_type': parts[7],
+                    'unit_name': parts[8],
+                    'observation_type': parts[9]
+            }
+            else:
+                return {
+                    'station_id': '-'.join(parts[:5]),
+                    'parameter': parts[5],
+                    'value_type': parts[6],
+                    'period_name': parts[7],
+                    'unit_name': parts[8],
+                    'observation_type': parts[9]
+                }
+        elif n_dashes == 10:
+            # example
+            # 1cdd6e48-7bcb-4f32-b8a8-3500a8a352b0-gw-logged-i-subdaily-mAOD-qualified
+            return {
+                'station_id': '-'.join(parts[:5]),
+                'parameter': parts[5],
+                'qualifier': parts[6],
+                'value_type': parts[7],
+                'period_name': parts[8],
+                'unit_name': parts[9],
+                'observation_type': parts[10]
+            }
+
+        # if it gets this far and has not yet returned a dict, then
+        logger.warning(f"Unrecognized notation format: '{notation}' ({n_dashes} dashes)")
+
+    except Exception as e:
+        logger.debug(f"Error parsing notation '{notation}': {e}")
+    return None  # fallback for unknown format or error
