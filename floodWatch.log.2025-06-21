@@ -1,0 +1,165 @@
+2025-06-21 04:04:05,621  - INFO     - __init__.py    :33   - create_app                     - FloodWatch startup
+2025-06-21 04:04:10,657  - INFO     - fetch_ea_hist_readings.py:487  - parallel_load_hist_readings    - (recent ) Updating rows in reading_recent from 2025-06-18 to 2025-06-21
+2025-06-21 04:04:10,666  - INFO     - fetch_ea_hist_readings.py:560  - parallel_load_hist_readings    - Kicking off 4 parallel tasks
+2025-06-21 04:04:15,248  - INFO     - fetch_ea_hist_readings.py:542  - worker                         - (T0):Loaded data from reading_recent for 2025-06-18 - 7 rows
+2025-06-21 04:04:15,249  - INFO     - fetch_ea_hist_readings.py:321  - threaded_insert                - (T0):f20250618: 1 chunks to be inserted
+2025-06-21 04:04:15,327  - INFO     - fetch_ea_hist_readings.py:49   - get_station_labels             - (T0):Loaded 5396 station labels into memory cache
+2025-06-21 04:04:15,340  - INFO     - fetch_ea_hist_readings.py:352  - threaded_insert                - (T0):f20250618: All parallel tasks have completed.
+2025-06-21 04:04:15,340  - INFO     - fetch_ea_hist_readings.py:552  - worker                         - (T0):Status summary for 2025-06-18: {0: 7}
+2025-06-21 04:04:15,340  - INFO     - fetch_ea_hist_readings.py:553  - worker                         - (T0):Process time   for 2025-06-18: 0.1s - 77 rows/sec
+2025-06-21 04:04:15,347  - INFO     - fetch_ea_hist_readings.py:542  - worker                         - (T1):Loaded data from reading_recent for 2025-06-19 - 17 rows
+2025-06-21 04:04:15,347  - INFO     - fetch_ea_hist_readings.py:321  - threaded_insert                - (T1):f20250619: 1 chunks to be inserted
+2025-06-21 04:04:15,367  - INFO     - fetch_ea_hist_readings.py:352  - threaded_insert                - (T1):f20250619: All parallel tasks have completed.
+2025-06-21 04:04:15,368  - INFO     - fetch_ea_hist_readings.py:552  - worker                         - (T1):Status summary for 2025-06-19: {0: 17}
+2025-06-21 04:04:15,368  - INFO     - fetch_ea_hist_readings.py:553  - worker                         - (T1):Process time   for 2025-06-19: 0.0s - 826 rows/sec
+2025-06-21 04:04:15,386  - INFO     - fetch_ea_hist_readings.py:542  - worker                         - (T2):Loaded data from reading_recent for 2025-06-20 - 1241 rows
+2025-06-21 04:04:15,386  - INFO     - fetch_ea_hist_readings.py:321  - threaded_insert                - (T2):f20250620: 1 chunks to be inserted
+2025-06-21 04:04:16,615  - INFO     - fetch_ea_hist_readings.py:352  - threaded_insert                - (T2):f20250620: All parallel tasks have completed.
+2025-06-21 04:04:16,616  - INFO     - fetch_ea_hist_readings.py:552  - worker                         - (T2):Status summary for 2025-06-20: {0: 1241}
+2025-06-21 04:04:16,616  - INFO     - fetch_ea_hist_readings.py:553  - worker                         - (T2):Process time   for 2025-06-20: 1.2s - 1009 rows/sec
+2025-06-21 04:04:16,666  - INFO     - fetch_ea_hist_readings.py:542  - worker                         - (T3):Loaded data from reading_recent for 2025-06-21 - 3975 rows
+2025-06-21 04:04:16,666  - INFO     - fetch_ea_hist_readings.py:321  - threaded_insert                - (T3):f20250621: 1 chunks to be inserted
+2025-06-21 04:04:20,784  - INFO     - fetch_ea_hist_readings.py:352  - threaded_insert                - (T3):f20250621: All parallel tasks have completed.
+2025-06-21 04:04:20,784  - INFO     - fetch_ea_hist_readings.py:552  - worker                         - (T3):Status summary for 2025-06-21: {0: 3975}
+2025-06-21 04:04:20,784  - INFO     - fetch_ea_hist_readings.py:553  - worker                         - (T3):Process time   for 2025-06-21: 4.1s - 965 rows/sec
+2025-06-21 04:10:41,199  - INFO     - __init__.py    :33   - create_app                     - FloodWatch startup
+2025-06-21 04:10:46,147  - INFO     - fetch_ea_hist_readings.py:487  - parallel_load_hist_readings    - (recent ) Updating rows in reading_recent from 2025-05-27 to 2025-06-17
+2025-06-21 04:10:46,148  - INFO     - fetch_ea_hist_readings.py:560  - parallel_load_hist_readings    - Kicking off 22 parallel tasks
+2025-06-21 04:10:50,728  - INFO     - fetch_ea_hist_readings.py:542  - worker                         - (T0):Loaded data from reading_recent for 2025-05-27 - 1 rows
+2025-06-21 04:10:50,728  - INFO     - fetch_ea_hist_readings.py:321  - threaded_insert                - (T0):f20250527: 1 chunks to be inserted
+2025-06-21 04:10:50,762  - INFO     - fetch_ea_hist_readings.py:49   - get_station_labels             - (T0):Loaded 5396 station labels into memory cache
+2025-06-21 04:10:50,769  - INFO     - fetch_ea_hist_readings.py:352  - threaded_insert                - (T0):f20250527: All parallel tasks have completed.
+2025-06-21 04:10:50,769  - INFO     - fetch_ea_hist_readings.py:552  - worker                         - (T0):Status summary for 2025-05-27: {0: 1}
+2025-06-21 04:10:50,770  - INFO     - fetch_ea_hist_readings.py:553  - worker                         - (T0):Process time   for 2025-05-27: 0.0s - 24 rows/sec
+2025-06-21 04:10:50,775  - INFO     - fetch_ea_hist_readings.py:542  - worker                         - (T1):Loaded data from reading_recent for 2025-05-28 - 4 rows
+2025-06-21 04:10:50,775  - INFO     - fetch_ea_hist_readings.py:321  - threaded_insert                - (T1):f20250528: 1 chunks to be inserted
+2025-06-21 04:10:50,782  - INFO     - fetch_ea_hist_readings.py:352  - threaded_insert                - (T1):f20250528: All parallel tasks have completed.
+2025-06-21 04:10:50,782  - INFO     - fetch_ea_hist_readings.py:552  - worker                         - (T1):Status summary for 2025-05-28: {0: 4}
+2025-06-21 04:10:50,782  - INFO     - fetch_ea_hist_readings.py:553  - worker                         - (T1):Process time   for 2025-05-28: 0.0s - 525 rows/sec
+2025-06-21 04:10:50,787  - INFO     - fetch_ea_hist_readings.py:542  - worker                         - (T2):Loaded data from reading_recent for 2025-05-29 - 1 rows
+2025-06-21 04:10:50,787  - INFO     - fetch_ea_hist_readings.py:321  - threaded_insert                - (T2):f20250529: 1 chunks to be inserted
+2025-06-21 04:10:50,791  - INFO     - fetch_ea_hist_readings.py:352  - threaded_insert                - (T2):f20250529: All parallel tasks have completed.
+2025-06-21 04:10:50,791  - INFO     - fetch_ea_hist_readings.py:552  - worker                         - (T2):Status summary for 2025-05-29: {0: 1}
+2025-06-21 04:10:50,791  - INFO     - fetch_ea_hist_readings.py:553  - worker                         - (T2):Process time   for 2025-05-29: 0.0s - 262 rows/sec
+2025-06-21 04:10:50,796  - INFO     - fetch_ea_hist_readings.py:542  - worker                         - (T3):Loaded data from reading_recent for 2025-05-30 - 1 rows
+2025-06-21 04:10:50,796  - INFO     - fetch_ea_hist_readings.py:321  - threaded_insert                - (T3):f20250530: 1 chunks to be inserted
+2025-06-21 04:10:50,800  - INFO     - fetch_ea_hist_readings.py:352  - threaded_insert                - (T3):f20250530: All parallel tasks have completed.
+2025-06-21 04:10:50,800  - INFO     - fetch_ea_hist_readings.py:552  - worker                         - (T3):Status summary for 2025-05-30: {0: 1}
+2025-06-21 04:10:50,800  - INFO     - fetch_ea_hist_readings.py:553  - worker                         - (T3):Process time   for 2025-05-30: 0.0s - 263 rows/sec
+2025-06-21 04:10:50,804  - INFO     - fetch_ea_hist_readings.py:542  - worker                         - (T4):Loaded data from reading_recent for 2025-05-31 - 0 rows
+2025-06-21 04:10:50,805  - INFO     - fetch_ea_hist_readings.py:321  - threaded_insert                - (T4):f20250531: 0 chunks to be inserted
+2025-06-21 04:10:50,805  - INFO     - fetch_ea_hist_readings.py:352  - threaded_insert                - (T4):f20250531: All parallel tasks have completed.
+2025-06-21 04:10:50,805  - INFO     - fetch_ea_hist_readings.py:552  - worker                         - (T4):Status summary for 2025-05-31: {}
+2025-06-21 04:10:50,805  - INFO     - fetch_ea_hist_readings.py:553  - worker                         - (T4):Process time   for 2025-05-31: 0.0s - 0 rows/sec
+2025-06-21 04:10:50,809  - INFO     - fetch_ea_hist_readings.py:542  - worker                         - (T5):Loaded data from reading_recent for 2025-06-01 - 1 rows
+2025-06-21 04:10:50,810  - INFO     - fetch_ea_hist_readings.py:321  - threaded_insert                - (T5):f20250601: 1 chunks to be inserted
+2025-06-21 04:10:50,813  - INFO     - fetch_ea_hist_readings.py:352  - threaded_insert                - (T5):f20250601: All parallel tasks have completed.
+2025-06-21 04:10:50,813  - INFO     - fetch_ea_hist_readings.py:552  - worker                         - (T5):Status summary for 2025-06-01: {0: 1}
+2025-06-21 04:10:50,813  - INFO     - fetch_ea_hist_readings.py:553  - worker                         - (T5):Process time   for 2025-06-01: 0.0s - 264 rows/sec
+2025-06-21 04:10:50,818  - INFO     - fetch_ea_hist_readings.py:542  - worker                         - (T6):Loaded data from reading_recent for 2025-06-02 - 1 rows
+2025-06-21 04:10:50,818  - INFO     - fetch_ea_hist_readings.py:321  - threaded_insert                - (T6):f20250602: 1 chunks to be inserted
+2025-06-21 04:10:50,822  - INFO     - fetch_ea_hist_readings.py:352  - threaded_insert                - (T6):f20250602: All parallel tasks have completed.
+2025-06-21 04:10:50,822  - INFO     - fetch_ea_hist_readings.py:552  - worker                         - (T6):Status summary for 2025-06-02: {0: 1}
+2025-06-21 04:10:50,822  - INFO     - fetch_ea_hist_readings.py:553  - worker                         - (T6):Process time   for 2025-06-02: 0.0s - 235 rows/sec
+2025-06-21 04:10:50,828  - INFO     - fetch_ea_hist_readings.py:542  - worker                         - (T7):Loaded data from reading_recent for 2025-06-03 - 1 rows
+2025-06-21 04:10:50,828  - INFO     - fetch_ea_hist_readings.py:321  - threaded_insert                - (T7):f20250603: 1 chunks to be inserted
+2025-06-21 04:10:50,831  - INFO     - fetch_ea_hist_readings.py:352  - threaded_insert                - (T7):f20250603: All parallel tasks have completed.
+2025-06-21 04:10:50,832  - INFO     - fetch_ea_hist_readings.py:552  - worker                         - (T7):Status summary for 2025-06-03: {0: 1}
+2025-06-21 04:10:50,832  - INFO     - fetch_ea_hist_readings.py:553  - worker                         - (T7):Process time   for 2025-06-03: 0.0s - 270 rows/sec
+2025-06-21 04:10:50,836  - INFO     - fetch_ea_hist_readings.py:542  - worker                         - (T8):Loaded data from reading_recent for 2025-06-04 - 4 rows
+2025-06-21 04:10:50,836  - INFO     - fetch_ea_hist_readings.py:321  - threaded_insert                - (T8):f20250604: 1 chunks to be inserted
+2025-06-21 04:10:50,844  - INFO     - fetch_ea_hist_readings.py:352  - threaded_insert                - (T8):f20250604: All parallel tasks have completed.
+2025-06-21 04:10:50,844  - INFO     - fetch_ea_hist_readings.py:552  - worker                         - (T8):Status summary for 2025-06-04: {0: 4}
+2025-06-21 04:10:50,844  - INFO     - fetch_ea_hist_readings.py:553  - worker                         - (T8):Process time   for 2025-06-04: 0.0s - 519 rows/sec
+2025-06-21 04:10:50,848  - INFO     - fetch_ea_hist_readings.py:542  - worker                         - (T9):Loaded data from reading_recent for 2025-06-05 - 0 rows
+2025-06-21 04:10:50,848  - INFO     - fetch_ea_hist_readings.py:321  - threaded_insert                - (T9):f20250605: 0 chunks to be inserted
+2025-06-21 04:10:50,848  - INFO     - fetch_ea_hist_readings.py:352  - threaded_insert                - (T9):f20250605: All parallel tasks have completed.
+2025-06-21 04:10:50,848  - INFO     - fetch_ea_hist_readings.py:552  - worker                         - (T9):Status summary for 2025-06-05: {}
+2025-06-21 04:10:50,848  - INFO     - fetch_ea_hist_readings.py:553  - worker                         - (T9):Process time   for 2025-06-05: 0.0s - 0 rows/sec
+2025-06-21 04:10:50,852  - INFO     - fetch_ea_hist_readings.py:542  - worker                         - (T10):Loaded data from reading_recent for 2025-06-06 - 1 rows
+2025-06-21 04:10:50,853  - INFO     - fetch_ea_hist_readings.py:321  - threaded_insert                - (T10):f20250606: 1 chunks to be inserted
+2025-06-21 04:10:50,857  - INFO     - fetch_ea_hist_readings.py:352  - threaded_insert                - (T10):f20250606: All parallel tasks have completed.
+2025-06-21 04:10:50,857  - INFO     - fetch_ea_hist_readings.py:552  - worker                         - (T10):Status summary for 2025-06-06: {0: 1}
+2025-06-21 04:10:50,857  - INFO     - fetch_ea_hist_readings.py:553  - worker                         - (T10):Process time   for 2025-06-06: 0.0s - 260 rows/sec
+2025-06-21 04:10:50,862  - INFO     - fetch_ea_hist_readings.py:542  - worker                         - (T11):Loaded data from reading_recent for 2025-06-07 - 1 rows
+2025-06-21 04:10:50,862  - INFO     - fetch_ea_hist_readings.py:321  - threaded_insert                - (T11):f20250607: 1 chunks to be inserted
+2025-06-21 04:10:50,865  - INFO     - fetch_ea_hist_readings.py:352  - threaded_insert                - (T11):f20250607: All parallel tasks have completed.
+2025-06-21 04:10:50,865  - INFO     - fetch_ea_hist_readings.py:552  - worker                         - (T11):Status summary for 2025-06-07: {0: 1}
+2025-06-21 04:10:50,866  - INFO     - fetch_ea_hist_readings.py:553  - worker                         - (T11):Process time   for 2025-06-07: 0.0s - 265 rows/sec
+2025-06-21 04:10:50,870  - INFO     - fetch_ea_hist_readings.py:542  - worker                         - (T12):Loaded data from reading_recent for 2025-06-08 - 0 rows
+2025-06-21 04:10:50,870  - INFO     - fetch_ea_hist_readings.py:321  - threaded_insert                - (T12):f20250608: 0 chunks to be inserted
+2025-06-21 04:10:50,870  - INFO     - fetch_ea_hist_readings.py:352  - threaded_insert                - (T12):f20250608: All parallel tasks have completed.
+2025-06-21 04:10:50,870  - INFO     - fetch_ea_hist_readings.py:552  - worker                         - (T12):Status summary for 2025-06-08: {}
+2025-06-21 04:10:50,870  - INFO     - fetch_ea_hist_readings.py:553  - worker                         - (T12):Process time   for 2025-06-08: 0.0s - 0 rows/sec
+2025-06-21 04:10:50,875  - INFO     - fetch_ea_hist_readings.py:542  - worker                         - (T13):Loaded data from reading_recent for 2025-06-09 - 0 rows
+2025-06-21 04:10:50,875  - INFO     - fetch_ea_hist_readings.py:321  - threaded_insert                - (T13):f20250609: 0 chunks to be inserted
+2025-06-21 04:10:50,875  - INFO     - fetch_ea_hist_readings.py:352  - threaded_insert                - (T13):f20250609: All parallel tasks have completed.
+2025-06-21 04:10:50,875  - INFO     - fetch_ea_hist_readings.py:552  - worker                         - (T13):Status summary for 2025-06-09: {}
+2025-06-21 04:10:50,875  - INFO     - fetch_ea_hist_readings.py:553  - worker                         - (T13):Process time   for 2025-06-09: 0.0s - 0 rows/sec
+2025-06-21 04:10:50,879  - INFO     - fetch_ea_hist_readings.py:542  - worker                         - (T14):Loaded data from reading_recent for 2025-06-10 - 3 rows
+2025-06-21 04:10:50,879  - INFO     - fetch_ea_hist_readings.py:321  - threaded_insert                - (T14):f20250610: 1 chunks to be inserted
+2025-06-21 04:10:50,884  - INFO     - fetch_ea_hist_readings.py:352  - threaded_insert                - (T14):f20250610: All parallel tasks have completed.
+2025-06-21 04:10:50,884  - INFO     - fetch_ea_hist_readings.py:552  - worker                         - (T14):Status summary for 2025-06-10: {0: 3}
+2025-06-21 04:10:50,884  - INFO     - fetch_ea_hist_readings.py:553  - worker                         - (T14):Process time   for 2025-06-10: 0.0s - 571 rows/sec
+2025-06-21 04:10:50,889  - INFO     - fetch_ea_hist_readings.py:542  - worker                         - (T15):Loaded data from reading_recent for 2025-06-11 - 1 rows
+2025-06-21 04:10:50,889  - INFO     - fetch_ea_hist_readings.py:321  - threaded_insert                - (T15):f20250611: 1 chunks to be inserted
+2025-06-21 04:10:50,892  - INFO     - fetch_ea_hist_readings.py:352  - threaded_insert                - (T15):f20250611: All parallel tasks have completed.
+2025-06-21 04:10:50,892  - INFO     - fetch_ea_hist_readings.py:552  - worker                         - (T15):Status summary for 2025-06-11: {0: 1}
+2025-06-21 04:10:50,892  - INFO     - fetch_ea_hist_readings.py:553  - worker                         - (T15):Process time   for 2025-06-11: 0.0s - 281 rows/sec
+2025-06-21 04:10:50,897  - INFO     - fetch_ea_hist_readings.py:542  - worker                         - (T16):Loaded data from reading_recent for 2025-06-12 - 1 rows
+2025-06-21 04:10:50,897  - INFO     - fetch_ea_hist_readings.py:321  - threaded_insert                - (T16):f20250612: 1 chunks to be inserted
+2025-06-21 04:10:50,901  - INFO     - fetch_ea_hist_readings.py:352  - threaded_insert                - (T16):f20250612: All parallel tasks have completed.
+2025-06-21 04:10:50,901  - INFO     - fetch_ea_hist_readings.py:552  - worker                         - (T16):Status summary for 2025-06-12: {0: 1}
+2025-06-21 04:10:50,901  - INFO     - fetch_ea_hist_readings.py:553  - worker                         - (T16):Process time   for 2025-06-12: 0.0s - 229 rows/sec
+2025-06-21 04:10:50,908  - INFO     - fetch_ea_hist_readings.py:542  - worker                         - (T17):Loaded data from reading_recent for 2025-06-13 - 1 rows
+2025-06-21 04:10:50,908  - INFO     - fetch_ea_hist_readings.py:321  - threaded_insert                - (T17):f20250613: 1 chunks to be inserted
+2025-06-21 04:10:50,913  - INFO     - fetch_ea_hist_readings.py:352  - threaded_insert                - (T17):f20250613: All parallel tasks have completed.
+2025-06-21 04:10:50,913  - INFO     - fetch_ea_hist_readings.py:552  - worker                         - (T17):Status summary for 2025-06-13: {0: 1}
+2025-06-21 04:10:50,913  - INFO     - fetch_ea_hist_readings.py:553  - worker                         - (T17):Process time   for 2025-06-13: 0.0s - 204 rows/sec
+2025-06-21 04:10:50,918  - INFO     - fetch_ea_hist_readings.py:542  - worker                         - (T18):Loaded data from reading_recent for 2025-06-14 - 3 rows
+2025-06-21 04:10:50,918  - INFO     - fetch_ea_hist_readings.py:321  - threaded_insert                - (T18):f20250614: 1 chunks to be inserted
+2025-06-21 04:10:50,924  - INFO     - fetch_ea_hist_readings.py:352  - threaded_insert                - (T18):f20250614: All parallel tasks have completed.
+2025-06-21 04:10:50,925  - INFO     - fetch_ea_hist_readings.py:552  - worker                         - (T18):Status summary for 2025-06-14: {0: 3}
+2025-06-21 04:10:50,925  - INFO     - fetch_ea_hist_readings.py:553  - worker                         - (T18):Process time   for 2025-06-14: 0.0s - 440 rows/sec
+2025-06-21 04:10:50,930  - INFO     - fetch_ea_hist_readings.py:542  - worker                         - (T19):Loaded data from reading_recent for 2025-06-15 - 0 rows
+2025-06-21 04:10:50,930  - INFO     - fetch_ea_hist_readings.py:321  - threaded_insert                - (T19):f20250615: 0 chunks to be inserted
+2025-06-21 04:10:50,930  - INFO     - fetch_ea_hist_readings.py:352  - threaded_insert                - (T19):f20250615: All parallel tasks have completed.
+2025-06-21 04:10:50,930  - INFO     - fetch_ea_hist_readings.py:552  - worker                         - (T19):Status summary for 2025-06-15: {}
+2025-06-21 04:10:50,931  - INFO     - fetch_ea_hist_readings.py:553  - worker                         - (T19):Process time   for 2025-06-15: 0.0s - 0 rows/sec
+2025-06-21 04:10:50,935  - INFO     - fetch_ea_hist_readings.py:542  - worker                         - (T20):Loaded data from reading_recent for 2025-06-16 - 5 rows
+2025-06-21 04:10:50,935  - INFO     - fetch_ea_hist_readings.py:321  - threaded_insert                - (T20):f20250616: 1 chunks to be inserted
+2025-06-21 04:10:50,943  - INFO     - fetch_ea_hist_readings.py:352  - threaded_insert                - (T20):f20250616: All parallel tasks have completed.
+2025-06-21 04:10:50,943  - INFO     - fetch_ea_hist_readings.py:552  - worker                         - (T20):Status summary for 2025-06-16: {0: 5}
+2025-06-21 04:10:50,943  - INFO     - fetch_ea_hist_readings.py:553  - worker                         - (T20):Process time   for 2025-06-16: 0.0s - 601 rows/sec
+2025-06-21 04:10:50,949  - INFO     - fetch_ea_hist_readings.py:542  - worker                         - (T21):Loaded data from reading_recent for 2025-06-17 - 1 rows
+2025-06-21 04:10:50,949  - INFO     - fetch_ea_hist_readings.py:321  - threaded_insert                - (T21):f20250617: 1 chunks to be inserted
+2025-06-21 04:10:50,954  - INFO     - fetch_ea_hist_readings.py:352  - threaded_insert                - (T21):f20250617: All parallel tasks have completed.
+2025-06-21 04:10:50,954  - INFO     - fetch_ea_hist_readings.py:552  - worker                         - (T21):Status summary for 2025-06-17: {0: 1}
+2025-06-21 04:10:50,954  - INFO     - fetch_ea_hist_readings.py:553  - worker                         - (T21):Process time   for 2025-06-17: 0.0s - 230 rows/sec
+2025-06-21 04:10:56,763  - INFO     - __init__.py    :33   - create_app                     - FloodWatch startup
+2025-06-21 04:11:01,717  - INFO     - fetch_ea_hist_readings.py:492  - parallel_load_hist_readings    - (recent ) No rows in reading_recent to update - Ending
+2025-06-21 04:13:34,005  - INFO     - __init__.py    :33   - create_app                     - FloodWatch startup
+2025-06-21 04:13:39,008  - INFO     - fetch_ea_hist_readings.py:492  - parallel_load_hist_readings    - (recent ) No rows in reading_recent to update - Ending
+2025-06-21 23:19:32,298  - INFO     - __init__.py    :33   - create_app                     - FloodWatch startup
+2025-06-21 23:19:37,418  - INFO     - fetch_ea_hist_readings.py:498  - parallel_load_hist_readings    - (concise) Fetching from 2025-06-18 to 2025-06-18
+2025-06-21 23:19:37,418  - INFO     - fetch_ea_hist_readings.py:560  - parallel_load_hist_readings    - Kicking off 1 parallel tasks
+2025-06-21 23:19:37,739  - INFO     - fetch_ea_hist_readings.py:80   - load_hist_reading_data_from_ea - Fetched http://environment.data.gov.uk/flood-monitoring/archive/readings-2025-06-18.csv
+2025-06-21 23:19:39,511  - INFO     - fetch_ea_hist_readings.py:87   - load_hist_reading_data_from_ea - Saved: data/archive/concise/readings-2025-06-18.csv
+2025-06-21 23:19:39,853  - INFO     - fetch_ea_hist_readings.py:544  - worker                         - (T0):Loading concise data for 2025-06-18 - 473656 rows
+2025-06-21 23:19:39,853  - INFO     - fetch_ea_hist_readings.py:321  - threaded_insert                - (T0):f20250618: 95 chunks to be inserted
+2025-06-21 23:19:44,452  - INFO     - fetch_ea_hist_readings.py:49   - get_station_labels             - (T0):Loaded 5396 station labels into memory cache
+2025-06-21 23:21:23,869  - INFO     - fetch_ea_hist_readings.py:352  - threaded_insert                - (T0):f20250618: All parallel tasks have completed.
+2025-06-21 23:21:23,870  - INFO     - fetch_ea_hist_readings.py:552  - worker                         - (T0):Status summary for 2025-06-18: {0: 473493, 1: 142, 6: 21}
+2025-06-21 23:21:23,871  - INFO     - fetch_ea_hist_readings.py:553  - worker                         - (T0):Process time   for 2025-06-18: 104.0s - 4553 rows/sec
+2025-06-21 23:21:23,888  - INFO     - fetch_ea_hist_readings.py:498  - parallel_load_hist_readings    - (full   ) Fetching from 2025-06-18 to 2025-06-18
+2025-06-21 23:21:23,888  - INFO     - fetch_ea_hist_readings.py:560  - parallel_load_hist_readings    - Kicking off 1 parallel tasks
+2025-06-21 23:21:24,179  - INFO     - fetch_ea_hist_readings.py:80   - load_hist_reading_data_from_ea - Fetched http://environment.data.gov.uk/flood-monitoring/archive/readings-full-2025-06-18.csv
+2025-06-21 23:21:28,126  - INFO     - fetch_ea_hist_readings.py:87   - load_hist_reading_data_from_ea - Saved: data/archive/full/readings-full-2025-06-18.csv
+2025-06-21 23:21:29,003  - INFO     - fetch_ea_hist_readings.py:544  - worker                         - (T0):Loading full data for 2025-06-18 - 452812 rows
+2025-06-21 23:21:29,004  - INFO     - fetch_ea_hist_readings.py:321  - threaded_insert                - (T0):f20250618: 91 chunks to be inserted
+2025-06-21 23:23:10,642  - INFO     - fetch_ea_hist_readings.py:352  - threaded_insert                - (T0):f20250618: All parallel tasks have completed.
+2025-06-21 23:23:10,643  - INFO     - fetch_ea_hist_readings.py:552  - worker                         - (T0):Status summary for 2025-06-18: {0: 452649, 1: 142, 6: 21}
+2025-06-21 23:23:10,643  - INFO     - fetch_ea_hist_readings.py:553  - worker                         - (T0):Process time   for 2025-06-18: 101.6s - 4455 rows/sec
+2025-06-21 23:23:10,680  - INFO     - merge_ea_hist_readings.py:52   - merge_pending_days             - Merging 1 days in parallel with 8 workers...
+2025-06-21 23:23:19,264  - INFO     - merge_ea_hist_readings.py:25   - call_merge_day                 - Merged 2025-06-18 in 8.58 sec (attempt 1)
+2025-06-21 23:23:19,265  - INFO     - merge_ea_hist_readings.py:66   - merge_pending_days             - Merge completed.

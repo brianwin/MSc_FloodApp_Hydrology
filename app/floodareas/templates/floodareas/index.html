@@ -1,0 +1,25 @@
+{% extends 'base.html' %}
+
+{% block content %}
+    <span class="title"><h1>{% block title %} The Flood Areas Page {% endblock %}</h1></span>
+    <div class="content">
+        <h2>This is the floodareas Flask blueprint</h2>
+        {% for floodareas in floodareas %}
+            <div class="floodareas">
+                <p><b>#{{ floodareas.county }}</b></p>
+                <p class="title">
+                    <b>
+                        <a href="#">
+                            {{ floodareas.fwdcode }}
+                        </a>
+                    </b>
+                </p>
+                <div class="content">
+                    <p>{{ floodareas.lat }}</p>
+                    <p>{{ floodareas.long }}</p>
+                </div>
+                <hr>
+            </div>
+        {% endfor %}
+    </div>
+{% endblock %}

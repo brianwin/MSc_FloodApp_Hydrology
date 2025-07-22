@@ -1,0 +1,53 @@
+# Byte-compiled / cache files
+__pycache__/
+*.py[cod]
+*.so
+
+# PyCharm project files
+.idea/
+
+# Environment variables / secrets
+.env
+.env.*
+
+# Flask instance folder (per-user secrets/config)
+instance/
+
+# SQLite database (optional: keep if you're using it)
+*.sqlite3
+*.db
+
+# Logs
+*.log
+
+# Archived data
+data/
+
+# Unit test / coverage
+.coverage
+.cache/
+htmlcov/
+nosetests.xml
+coverage.xml
+*.cover
+.pytest_cache/
+
+# Virtual environments
+venv/
+env/
+.venv/
+.floodWatchenv/  # <-- your custom venv folder, if applicable
+
+# Pip & build
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Jupyter notebooks (optional)
+.ipynb_checkpoints/
+
+# MacOS and other OS clutter
+.DS_Store
+Thumbs.db
