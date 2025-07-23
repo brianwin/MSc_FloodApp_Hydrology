@@ -35,17 +35,11 @@ alter table reading_hydro_ht
     owner to wmon;
 
 ALTER TABLE reading_hydro_ht ADD CONSTRAINT reading_hydro_ht_pk PRIMARY KEY (notation, r_datetime);
-
 create index if not exists reading_hydro_ht_r_datetime_idx on reading_hydro_ht (r_datetime desc);
-create index if not exists reading_hydro_ht_r_date_idx on reading_hydro_ht (r_date desc);
 
 -- Make it a hypertable (TimescaleDB)
-#SELECT create_hypertable('production.reading_hydro_ht', 'r_datetime', if_not_exists => TRUE);
+-- SELECT create_hypertable('production.reading_hydro_ht', 'r_datetime', if_not_exists => TRUE);
 SELECT create_hypertable('production.reading_hydro_ht', 'r_datetime', chunk_time_interval => INTERVAL '1 day', if_not_exists => TRUE);
 
-
-create index if not exists idx_reading_hydro_ht_source
-    on reading_hydro_ht (source);
-
-create index if not exists idx_reading_hydro_ht_r_datetime_idx
-    on reading_hydro_ht (r_datetime desc);
+-- create index if not exists reading_hydro_ht_r_date_idx on reading_hydro_ht (r_date desc);
+-- create index if not exists reading_hydro_ht_source_idx on reading_hydro_ht (source);
