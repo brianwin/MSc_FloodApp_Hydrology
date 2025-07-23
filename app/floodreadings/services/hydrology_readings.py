@@ -165,7 +165,7 @@ def get_hydrology_readings_loop(upto:int = 3,
                             f"(T{p_worker_id}):Loading hydrology data for {datestr} - {len(df)} rows")
                     t0 = time.perf_counter()
                     status_summary = threaded_insert(df,
-                                                     chunk_size=5000, max_workers=16,
+                                                     chunk_size=20000, max_workers=32,
                                                      ea_datasource=f"hydro-{datestr}",
                                                      app=app,
                                                      worker_id=p_worker_id

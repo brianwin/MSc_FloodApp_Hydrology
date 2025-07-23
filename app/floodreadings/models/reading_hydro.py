@@ -2,9 +2,9 @@ from app.extensions import db
 from sqlalchemy import text, PrimaryKeyConstraint, Column, DateTime, Date, String, Integer, Numeric
 
 class Reading_Hydro(db.Model):
-    __tablename__ = 'reading_hydro'
+    __tablename__ = 'reading_hydro_ht'
     __table_args__ = (
-        PrimaryKeyConstraint('notation', 'r_datetime', name='reading_hydro_pk'),
+        PrimaryKeyConstraint('notation', 'r_datetime', name='reading_hydro_ht_pk'),
         {'schema': 'production'}
     )
 
