@@ -5,6 +5,8 @@ from .db_logger import PostgresWorker, QueuePostgresHandler
 from queue import Queue
 from threading import Event
 
+from colorlog import ColoredFormatter
+
 # Global objects for queue-based logging (to a persistent open db connection)
 _log_queue = Queue()
 _stop_event = Event()
@@ -34,7 +36,16 @@ def setup_logging():
     #formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
     #formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(funcName)s - %(message)s')
     #formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(funcName)s - %(message)s')
-    formatter = logging.Formatter('%(asctime)-24s - %(levelname)-8s - %(filename)-15s:%(lineno)-4d - %(funcName)-30s - %(message)s')
+    #formatter = logging.Formatter('%(asctime)-24s - %(levelname)-8s - %(filename)-15s:%(lineno)-4d - %(funcName)-30s - %(message)s')
+    formatter = ColoredFormatter("%(log_color)s%(asctime)-24s - %(levelname)-8s - %(filename)-15s:%(lineno)-4d - %(funcName)-30s - %(message)s",
+                                 log_colors={
+                                     'DEBUG': 'cyan',
+                                     'INFO': 'white',
+                                     'WARNING': 'yellow',
+                                     'ERROR': 'red',
+                                     'CRITICAL': 'bold_red',
+                                 }
+                                )
 
     # ---- File Handler ----
     #file_handler = logging.FileHandler('floodWatch.log')

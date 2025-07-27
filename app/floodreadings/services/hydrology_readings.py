@@ -11,10 +11,13 @@ import math
 import time
 from collections import Counter
 
+#from pynput import keyboard
+#import threading
+
 from flask import current_app
 #import click
 from sqlalchemy.orm import scoped_session, sessionmaker
-from sqlalchemy.sql import func
+from sqlalchemy.sql import func, distinct, exists
 #from sqlalchemy import text
 from concurrent.futures import ThreadPoolExecutor
 
@@ -33,8 +36,19 @@ logger = logging.getLogger('floodWatch3')
 from werkzeug.local import LocalProxy
 current_app: LocalProxy
 
-#ea_root_url = 'http://environment.data.gov.uk/flood-monitoring'  # original source data (superceeded)
+#ea_root_url = 'http://environment.data.gov.uk/flood-monitoring'  # original source data (superseded)
 ea_root_url = 'http://environment.data.gov.uk/hydrology'          # source data for extended history
+
+# Define stop_event globally
+#stop_event = threading.Event()
+
+#def on_press(key):
+#    try:
+#        if key.char == 'q':
+#            print("Detected 'q' — will stop after completing the current task.")
+#            stop_event.set()
+#    except AttributeError:
+#        pass  # Handles special keys like shift, ctrl, etc.
 
 
 station_labels = None
@@ -101,8 +115,19 @@ def get_hydrology_readings (datestr: str,
             os.remove(filepath)
             logger.info(f"Removed existing file: {filepath}")
         else:
-            logger.info(f"Using existing local file: {filepath}")
-            return pd.read_csv(filepath, low_memory=False, dtype=str)
+            if os.path.getsize(filepath) == 0:
+                logger.warning(f"File exists, but is empty: {filepath}")
+                os.remove(filepath)
+                logger.info(f"Removed existing file: {filepath}")
+            else:
+                df = pd.read_csv(filepath, low_memory=False, dtype=str)
+                if df.empty or df.shape[1] == 0:
+                    logger.warning(f"File exists, but has no data or columns: {filepath}")
+                    os.remove(filepath)
+                    logger.info(f"Removed existing file: {filepath}")
+                else:
+                    logger.info(f"Using existing local file: {filepath}")
+                    return df
 
     # Download if file doesn't exist after optional deletion
     response = requests.get(url, stream=True, timeout=60)
@@ -119,36 +144,57 @@ def get_hydrology_readings (datestr: str,
         logger.warning(f'Response {response.status_code}: Failed to fetch data from {url}')
         return None
 
-    return pd.read_csv(filepath, low_memory=False, dtype=str)
+    df = pd.read_csv(filepath, low_memory=False, dtype=str)
+    return df
+
 
 def get_hydrology_readings_loop(upto:int = 3,
                                 days_per_task:int = 1, max_workers:int = 1,
+                                gaps_only:bool = False,
                                 app = None,
                                 force_start_date: datetime.date = None,
                                 force_end_date: datetime.date = None,
-                                force_replace:bool=False
+                                force_replace:bool = False
                                ):
-    if force_start_date:
-        start_date = force_start_date
-        if force_end_date:
-            end_date = force_end_date
-            logger.info(f"(hydro) Processing for {start_date}  to {end_date}")
-        else:
-            end_date = start_date
-            logger.info(f"(hydro) Processing for {start_date} only")
+    #import torch
+    #logger.info(f"torch version:   {torch.__version__}")
+    #logger.info(f"torch available: {torch.cuda.is_available()}")
+    #logger.info(f"torch device:    {torch.cuda.get_device_name(0)}")
 
-        delete_readings_by_r_datetime(start_date, end_date)
+    if gaps_only:
+        start_date, end_date = get_db_min_max_dates()
     else:
-        start_date, end_date = get_start_end_dates(upto=upto)
-        if end_date >= start_date:
-            logger.info(f"(hydro) Fetching from {start_date} to {end_date}")
+        if force_start_date:
+            start_date = force_start_date
+            if force_end_date:
+                end_date = force_end_date
+                logger.info(f"(hydro) Processing for {start_date}  to {end_date}")
+            else:
+                end_date = start_date
+                logger.info(f"(hydro) Processing for {start_date} only")
+
+            delete_readings_by_r_datetime(start_date, end_date)
         else:
-            logger.info(f"(hydro) No new days to fetch")
+            start_date, end_date = get_start_end_dates(upto=upto)
+            if end_date >= start_date:
+                logger.info(f"(hydro) Fetching from {start_date} to {end_date}")
+            else:
+                logger.info(f"(hydro) No new days to fetch")
+
+    def date_in_db(d_date) -> bool:
+        """Check if a specific date exists in the Reading_Hydro table."""
+        return db.session.query(exists().where(func.date(Reading_Hydro.r_date) == d_date)).scalar()
 
     all_ranges = []
+    # Build a list of eligible dates to process
     current = start_date
     while current <= end_date:
         chunk_end = min(current + datetime.timedelta(days=days_per_task - 1), end_date)
+
+        if gaps_only and date_in_db(current):
+            current = chunk_end + datetime.timedelta(days=1)
+            continue
+
         all_ranges.append((current, chunk_end))
         current = chunk_end + datetime.timedelta(days=1)
 
@@ -156,9 +202,14 @@ def get_hydrology_readings_loop(upto:int = 3,
         with xapp.app_context():
             current_date = p_start_date
             while current_date <= p_end_date:
+                #if stop_event.is_set():
+                #    #logger.warning(f"(T{p_worker_id}): Stop signal received — exiting early at {current_date}")
+                #    return  # Exit cleanly
+
                 datestr = current_date.strftime('%Y-%m-%d')
-                # logger.info(f"Loading data for {datestr}")
+                #logger.debug(f"++++ Loading data for {datestr}")
                 df = get_hydrology_readings(datestr, force_replace=force_replace)
+                #logger.debug(f"Obtained {len(df)} rows")
 
                 if df is not None:
                     logger.info(
@@ -181,27 +232,67 @@ def get_hydrology_readings_loop(upto:int = 3,
                         f"(T{p_worker_id}):No hydrology data available for {datestr}")
                 current_date += datetime.timedelta(days=1)
 
+
+    # Start listener in background
+    #listener = keyboard.Listener(on_press=on_press)
+    #listener.start()
+
     if len(all_ranges) > 0:
         logger.info(f"Kicking off {len(all_ranges)} parallel tasks")
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             for worker_id, (start, end) in enumerate(all_ranges):
+                #print ('True' if stop_event.is_set() else 'False')
+                #if stop_event.is_set():
+                #    logger.warning("User requested stop — no more tasks will be submitted.")
+                #    break  # stop submitting new tasks
                 executor.submit(worker, start, end, worker_id, xapp=app)
+                #time.sleep(0.2)  #TEMP: allows time for 'q' to be detected
+    #listener.stop()
+    logger.info("Completed processing")
 
 
-def get_start_end_dates(concise:bool = True, upto:int = 7) -> [datetime.date, datetime.date]:
+def get_db_min_max_dates() -> [datetime.date, datetime.date]:
+    logger.debug(f"(hydro) Checking readings in db")
+    db.session.remove()
+    # Get min r_date in the DB
+    min_r_date = db.session.query(func.min(Reading_Hydro.r_datetime)).scalar().date()
+    #logger.debug(f"(hydro) min_r_date : {min_r_date}")
+
+    # Get max r_date in the DB
+    max_r_date = db.session.query(func.max(Reading_Hydro.r_datetime)).scalar().date()
+    #logger.debug(f"(hydro) max_r_date : {max_r_date}")
+
+    # Total days in the range (inclusive)
+    num_dates = (max_r_date - min_r_date).days +1
+    #logger.debug(f"(hydro) num_dates : {num_dates}")
+
+    # Count unique days present in the DB
+    present_dates = db.session.query(func.count(distinct(func.date(Reading_Hydro.r_date)))).scalar()
+    #logger.debug(f"(hydro) present_dates : {present_dates}")
+
+    # Calc the number of missing dates
+    missing_dates = num_dates - present_dates
+    #logger.debug(f"(hydro) missing_dates : {missing_dates}")
+
+    logger.debug(f"(hydro) Db has readings between {min_r_date} and {max_r_date} - {num_dates} days range ({missing_dates} missing)")
+    return min_r_date, max_r_date
+
+
+def get_start_end_dates(upto:int = 7) -> [datetime.date, datetime.date]:
     # logger.debug(f"getting database max_r_date")
     # Step 1: Get max r_date in the DB
     db.session.remove()
-    max_r_date = db.session.query(func.max(Reading_Hydro.r_datetime)).scalar()
+    #max_r_date = db.session.query(func.max(Reading_Hydro.r_datetime)).scalar()
+    _, max_r_date = get_db_min_max_dates()
 
     logger.debug(f"(hydro) Database max_r_date : {max_r_date}")
     if not max_r_date:
         logger.warning("(hydro) No readings found in DB – starting from default date")
         # Set loop range start (a date)
-        start_date = datetime.date(2024, 5, 12)  # or any fallback start date
+        start_date = datetime.date(2022, 1, 1)  # or any fallback start date
     else:
         # Set loop range start (a date)
-        start_date = max_r_date.date() + datetime.timedelta(days=1)
+        start_date = max_r_date + datetime.timedelta(days=1)
 
     # Step 2: Set loop range end
     end_date = (datetime.datetime.now(datetime.timezone.utc).date() - datetime.timedelta(days=upto))
@@ -341,7 +432,7 @@ def insert_chunk(chunk_df: pd.DataFrame,
                  stn_labels = None,
                  ea_datasource:str = 'EA',
                 ) -> dict:
-    from . import get_fieldvalue_for_db
+    from . import get_fieldvalue_for_db  # string converter
 
     session = get_scoped_session()
     #logger.info(f"Inserting chunk {chunk_num} using scoped session")

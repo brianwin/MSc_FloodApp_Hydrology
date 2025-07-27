@@ -60,6 +60,7 @@ class PostgresWorker(Thread):
             ))
             self.conn.commit()
         except Exception as e:
+            self.conn.rollback()
             print(f"DB insert error during db logging: {e}")
 
 # app/utils/db_logger.py continued

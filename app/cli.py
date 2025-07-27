@@ -70,3 +70,26 @@ def get_hydrology_data_command(force_start_date, force_end_date, force_replace):
                                     force_replace=force_replace
                                    )
 
+
+@click.command('get-hydrology-readings-data-latest')
+@with_appcontext
+def get_hydrology_data_latest_command():
+    """Get readings data from the hydrology API"""
+    # noinspection PyProtectedMember
+    app = current_app._get_current_object()
+    with app.app_context():
+        get_hydrology_readings_loop(app=app,
+                                    force_replace=False
+                                   )
+
+@click.command('get-hydrology-readings-data-gaps')
+@with_appcontext
+def get_hydrology_data_gaps_command():
+    """Get readings data from the hydrology API"""
+    # noinspection PyProtectedMember
+    app = current_app._get_current_object()
+    with app.app_context():
+        get_hydrology_readings_loop(app=app,
+                                    gaps_only=True,
+                                    force_replace=False
+                                   )

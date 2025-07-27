@@ -55,7 +55,8 @@ def create_app(config_class=DevelopmentConfig):
             Reading_Hydro
         )
         db.create_all()
-
+    logger.info('db models created')
+    print(">> AFTER DB CREATE")
 
     # Register blueprints
     from app.main import bp as main_bp
@@ -70,6 +71,9 @@ def create_app(config_class=DevelopmentConfig):
     from app.floodstations import bp as floodstations_bp
     app.register_blueprint(floodstations_bp, url_prefix='/floodstations')
 
+    logger.info('Blueprints imported')
+    print(">> AFTER BLUEPRINTS")
+
     @app.route('/test/')
     def test_page():
         return '<h1>Testing the Flask Application Factory Pattern</h1>'
@@ -78,15 +82,32 @@ def create_app(config_class=DevelopmentConfig):
     from app.cli import (
         load_station_data_command,
         load_floodarea_data_command,
-        get_hydrology_data_command
+        get_hydrology_data_command,
+        get_hydrology_data_latest_command,
+        get_hydrology_data_gaps_command
     )
     app.cli.add_command(load_station_data_command)
     app.cli.add_command(load_floodarea_data_command)
     app.cli.add_command(get_hydrology_data_command)
+    app.cli.add_command(get_hydrology_data_latest_command)
+    app.cli.add_command(get_hydrology_data_gaps_command)
+
+    logger.info('CLIs registered')
+    print(">> AFTER CLI COMMANDS")
+
+    @app.shell_context_processor
+    def make_shell_context():
+        return {
+            'db': db,
+            'Reading_Hydro': Reading_Hydro,
+            'Station': Station,
+            'Floodarea': Floodarea
+        }
 
     @app.teardown_appcontext
     def shutdown_logging_worker(exception=None):
         stop_logging()
 
+    logger.info("Returning app")
     return app
 
