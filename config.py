@@ -9,14 +9,15 @@ class Config:
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
     SQLALCHEMY_ENGINE_OPTIONS = {
-        "pool_size": 128,           # Default is 5
+        "pool_size": 128,          # Default is 5
         "max_overflow": 32,        # Allow up to 10 + 20 = 30 connections
         "pool_timeout": 30,        # Wait time before raising TimeoutError
-        "pool_recycle": 1800       # Avoid stale connections (optional)
+        "pool_recycle": 1800,      # Avoid stale connections (optional)
     }
 
 class DevelopmentConfig(Config):
     DEBUG = True
+    #DEBUG = False
 
 
 class ProductionConfig(Config):

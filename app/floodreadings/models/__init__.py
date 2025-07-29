@@ -1,2 +1,1 @@
-from .reading import Reading
-from .reading_hydro import Reading_Hydro
+from .hyd_reading import ReadingHydro

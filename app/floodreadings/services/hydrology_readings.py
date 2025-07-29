@@ -17,16 +17,18 @@ from collections import Counter
 from flask import current_app
 #import click
 from sqlalchemy.orm import scoped_session, sessionmaker
-from sqlalchemy.sql import func, distinct, exists
+from sqlalchemy.sql import func, distinct, exists, literal_column
+from sqlalchemy.dialects.postgresql import insert
 #from sqlalchemy import text
 from concurrent.futures import ThreadPoolExecutor
+from tqdm import tqdm
 
 #from datetime import date, datetime, timedelta, timezone
 import datetime
 from dateutil.parser import parse
 
 from app import db
-from ..models import Reading_Hydro
+from ..models import ReadingHydro
 from app.floodstations.models.station import Station
 
 import logging
@@ -56,7 +58,7 @@ def get_station_labels(worker_id:int=0):
     """Lazily load station labels on first access."""
     global station_labels
     if station_labels is None:
-        logger.debug(f'(T{worker_id}):Lazy loading station labels')
+        #logger.debug(f'(T{worker_id}):Lazy loading station labels')
         try:
             station_labels = {
                 row.stationReference: row.label
@@ -173,7 +175,7 @@ def get_hydrology_readings_loop(upto:int = 3,
                 end_date = start_date
                 logger.info(f"(hydro) Processing for {start_date} only")
 
-            delete_readings_by_r_datetime(start_date, end_date)
+            #delete_readings_by_r_datetime(start_date, end_date)
         else:
             start_date, end_date = get_start_end_dates(upto=upto)
             if end_date >= start_date:
@@ -182,8 +184,8 @@ def get_hydrology_readings_loop(upto:int = 3,
                 logger.info(f"(hydro) No new days to fetch")
 
     def date_in_db(d_date) -> bool:
-        """Check if a specific date exists in the Reading_Hydro table."""
-        return db.session.query(exists().where(func.date(Reading_Hydro.r_date) == d_date)).scalar()
+        """Check if a specific date exists in the ReadingHydro table."""
+        return db.session.query(exists().where(func.date(ReadingHydro.r_date) == d_date)).scalar()
 
     all_ranges = []
     # Build a list of eligible dates to process
@@ -199,7 +201,7 @@ def get_hydrology_readings_loop(upto:int = 3,
         current = chunk_end + datetime.timedelta(days=1)
 
     def worker(p_start_date, p_end_date, p_worker_id, xapp=None):
-        with xapp.app_context():
+        with (xapp.app_context()):
             current_date = p_start_date
             while current_date <= p_end_date:
                 #if stop_event.is_set():
@@ -215,17 +217,19 @@ def get_hydrology_readings_loop(upto:int = 3,
                     logger.info(
                             f"(T{p_worker_id}):Loading hydrology data for {datestr} - {len(df)} rows")
                     t0 = time.perf_counter()
-                    status_summary = threaded_insert(df,
-                                                     chunk_size=20000, max_workers=32,
-                                                     ea_datasource=f"hydro-{datestr}",
-                                                     app=app,
-                                                     worker_id=p_worker_id
+                    # if the date does not exist in the database then it's safe to perform a (much faster) bulk load
+                    status_summary, insupd_summary = threaded_insert(
+                                                      df,
+                                                      chunk_size=20000, max_workers=32,
+                                                      ea_datasource=f"hydro-{datestr}",
+                                                      app=app,
+                                                      worker_id=p_worker_id,
+                                                      bulk_load= not date_in_db(datestr)
                                                      )
                     t1 = time.perf_counter()
-                    logger.info(
-                        f"(T{p_worker_id}):Status summary for {datestr}: {dict(sorted(status_summary.items()))}")
-                    logger.info(
-                        f"(T{p_worker_id}):Process time   for {datestr}: {(t1 - t0):.1f}s - {int(len(df) / (t1 - t0))} rows/sec")
+                    logger.info(f"(T{p_worker_id}):Status summary for {datestr}: {dict(sorted(status_summary.items()))}")
+                    logger.info(f"(T{p_worker_id}):Action summary for {datestr}: {dict(sorted(insupd_summary.items()))}")
+                    logger.info(f"(T{p_worker_id}):Process time   for {datestr}: {(t1 - t0):.1f}s - {int(len(df) / (t1 - t0))} rows/sec")
                     # logger.debug('Test load only')
                 else:
                     logger.warning(
@@ -255,11 +259,11 @@ def get_db_min_max_dates() -> [datetime.date, datetime.date]:
     logger.debug(f"(hydro) Checking readings in db")
     db.session.remove()
     # Get min r_date in the DB
-    min_r_date = db.session.query(func.min(Reading_Hydro.r_datetime)).scalar().date()
+    min_r_date = db.session.query(func.min(ReadingHydro.r_datetime)).scalar().date()
     #logger.debug(f"(hydro) min_r_date : {min_r_date}")
 
     # Get max r_date in the DB
-    max_r_date = db.session.query(func.max(Reading_Hydro.r_datetime)).scalar().date()
+    max_r_date = db.session.query(func.max(ReadingHydro.r_datetime)).scalar().date()
     #logger.debug(f"(hydro) max_r_date : {max_r_date}")
 
     # Total days in the range (inclusive)
@@ -267,7 +271,7 @@ def get_db_min_max_dates() -> [datetime.date, datetime.date]:
     #logger.debug(f"(hydro) num_dates : {num_dates}")
 
     # Count unique days present in the DB
-    present_dates = db.session.query(func.count(distinct(func.date(Reading_Hydro.r_date)))).scalar()
+    present_dates = db.session.query(func.count(distinct(func.date(ReadingHydro.r_date)))).scalar()
     #logger.debug(f"(hydro) present_dates : {present_dates}")
 
     # Calc the number of missing dates
@@ -306,7 +310,7 @@ def delete_readings_by_r_datetime(start_date, end_date):
     end_dt = date_to_utc_datetime(end_date, end_of_day=True)
 
     date_range = start_date if end_date == start_date else f"{start_date} to {end_date}"
-    model = Reading_Hydro
+    model = ReadingHydro
 
     try:
         logger.info(f"Deleting rows from {model.__name__} for {date_range}")
@@ -335,17 +339,19 @@ def date_to_utc_datetime(d: datetime.date, end_of_day:bool = False) -> datetime.
 def threaded_insert(df:pd.DataFrame,
                     chunk_size:int = 500, max_workers:int = 16,
                     ea_datasource:str = 'EA',
-                    app = None, worker_id = 0
-                   ):
+                    app = None, worker_id = 0,
+                    bulk_load:bool = False
+                   ) -> (int, int):
     logmark = f"(T{worker_id}):f{ea_datasource[-10:].replace('-', '')}"
     chunks = [df.iloc[i:i + chunk_size] for i in range(0, len(df), chunk_size)]
-    logger.info(f'{logmark}: {len(chunks)} chunks to be inserted')
+    logger.info(f'{logmark}: {len(chunks)} chunks to be processed ({"bulk load" if bulk_load else "ins/upd"})')
 
     # Save the current app context
     if app is None:
         # noinspection PyProtectedMember
         app = current_app._get_current_object()
-    results = [None] * len(chunks)
+    status_res = [None] * len(chunks)
+    insupd_res = [None] * len(chunks)
 
     with app.app_context():
         stn_labels = get_station_labels(worker_id=worker_id)  # load once
@@ -353,29 +359,35 @@ def threaded_insert(df:pd.DataFrame,
     def run_in_app_context(chunk, chunk_num, labels, source:str = 'EA'):
         with app.app_context():
             #logger.debug(f'{logmark}: Going to insert_chunk({chunk_num})')
-            status_results = insert_chunk(chunk, chunk_num, stn_labels=labels, ea_datasource=source)
-            results[chunk_num] = status_results
+            status_res[chunk_num], insupd_res[chunk_num] = insert_chunk(chunk, chunk_num, stn_labels=labels, ea_datasource=source, bulk_load=bulk_load)
             #if status_results[0] != 500:
             #    logger.info(f'{logmark}: chunk {chunk_num} status= {status_results}')
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = [
-            executor.submit(run_in_app_context, chunk, i, stn_labels, ea_datasource)
-            for i, chunk in enumerate(chunks)
-        ]
-        for future in futures:
-            future.result()
-            #logger.info(f'{logmark}: chunk {i} to be inserted')
-            #executor.submit(insert_chunk_full, chunk, i)
+        with tqdm(total=len(chunks), desc="Processing chunks", unit="chunk", ncols=133) as pbar:
+            futures = [
+                executor.submit(run_in_app_context, chunk, i, stn_labels, ea_datasource)
+                for i, chunk in enumerate(chunks)
+            ]
+            for future in futures:
+                future.result()
+                #logger.info(f'{logmark}: chunk {i} to be inserted')
+                #executor.submit(insert_chunk_full, chunk, i)
+                pbar.update(1)
         logger.info(f"{logmark}: All parallel tasks have completed.")
 
     # Aggregate all counters
     total_status = Counter()
-    for status in results:
+    for status in status_res:
         if status:
             total_status.update(status)
 
-    return total_status
+    total_insupd = Counter()
+    for status in insupd_res:
+        if status:
+            total_insupd.update(status)
+
+    return total_status, total_insupd
 
 
 
@@ -431,12 +443,14 @@ def insert_chunk(chunk_df: pd.DataFrame,
                  chunk_num: int,
                  stn_labels = None,
                  ea_datasource:str = 'EA',
-                ) -> dict:
+                 bulk_load:bool = False
+                ) -> (dict, dict):
     from . import get_fieldvalue_for_db  # string converter
 
     session = get_scoped_session()
     #logger.info(f"Inserting chunk {chunk_num} using scoped session")
     status_counter = Counter()
+    insupd_counter = Counter()
     try:
         readings = []
         for _, row in chunk_df.iterrows():
@@ -499,16 +513,55 @@ def insert_chunk(chunk_df: pd.DataFrame,
                 'value_type': parsed.get("value_type") if parsed else None,
                 'period_name': parsed.get("period_name") if parsed else None,
                 'unit_name': parsed.get("unit_name") if parsed else None,
-                'observation_type': parsed.get("observation_type") if parsed else None
+                'observation_type': parsed.get("observation_type") if parsed else None,
+                'updated': None
             }
 
             readings.append(reading)  # whether "reading" came from "concise" or "full" section
 
-        #logger.info(f'Chunk {chunk_num}: generated')
+        #logger.info(f'Chunk {chunk_num}: generated - {len(readings)} records')
         #logger.debug(f"Readings generated: {readings[:2]}")  # Print first two for inspection
         #t0 = time.perf_counter()
-        #session.add_all(readings)
-        session.bulk_insert_mappings(Reading_Hydro, readings)
+        ##session.add_all(readings)
+
+        #logger.debug(f"Starting bulk insert for chunk {chunk_num}")
+
+        if bulk_load:
+            # Just bulk insert all rows available in the datafile
+            session.bulk_insert_mappings(ReadingHydro, readings)
+        else:
+            stmt = insert(ReadingHydro).values(readings)
+
+            update_fields = ['value', 'completeness', 'quality', 'qcode', 'valid', 'invalid', 'missing']
+            update_dict = {field: stmt.excluded[field] for field in update_fields}
+            update_dict['updated'] = func.now()  # set updated timestamp on actual update
+
+            # Optimisation: Put most frequently changed columns first to reduce comparisons
+            where_clause = (
+                    (ReadingHydro.quality.is_distinct_from(stmt.excluded.quality)) |
+                    (ReadingHydro.completeness.is_distinct_from(stmt.excluded.completeness)) |
+                    (ReadingHydro.qcode.is_distinct_from(stmt.excluded.qcode)) |
+                    (ReadingHydro.value.is_distinct_from(stmt.excluded.value)) |
+                    (ReadingHydro.valid.is_distinct_from(stmt.excluded.valid)) |
+                    (ReadingHydro.invalid.is_distinct_from(stmt.excluded.invalid)) |
+                    (ReadingHydro.missing.is_distinct_from(stmt.excluded.missing))
+            )
+
+            conflict_stmt = stmt.on_conflict_do_update(
+                index_elements=['measure', 'r_datetime'],
+                set_=update_dict,
+                where=where_clause
+            ).returning(literal_column('xmax'))   # PostgreSQL special system column
+
+            #logger.debug(f"Conflict statement: {conflict_stmt}")
+            result = session.execute(conflict_stmt)
+
+            # Counts
+            rows = result.fetchall()
+            insupd_counter['inserted'] = sum(1 for row in rows if row.xmax == 0)  # Inserted rows
+            insupd_counter['updated']  = sum(1 for row in rows if row.xmax != 0)  # Updated rows
+            #logger.debug(f"Chunk {chunk_num}: Inserted rows: {insupd_counter['inserted']}, Updated rows: {insupd_counter['updated']}")
+
         session.commit()
         #t1 = time.perf_counter()
         #logger.info(f"DB insert time for chunk {chunk_num}: {t1 - t0:.2f}s")
@@ -519,7 +572,7 @@ def insert_chunk(chunk_df: pd.DataFrame,
     finally:
         session.remove()
         #logger.info(f"Chunk {chunk_num} value statuses: {dict(status_counter)}")
-        return status_counter
+        return status_counter, insupd_counter
 
 
 

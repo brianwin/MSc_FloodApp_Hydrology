@@ -1,6 +1,8 @@
 import click
 from flask.cli import with_appcontext
 from flask import current_app
+from app.extensions import db
+import datetime
 
 from .floodstations.services import load_station_data_from_ea
 from .floodareas.services import load_floodarea_data_from_ea
@@ -12,6 +14,33 @@ logger=logging.getLogger('floodWatch3')
 # annotate the proxy so the IDE knows its real type
 from werkzeug.local import LocalProxy
 current_app: LocalProxy
+
+@click.command("init-db")
+@with_appcontext
+def init_db_command():
+    # All context-sensitive imports and init for database
+    from .floodstations.models import (
+        StationMeta,
+        StationJson,
+        Station,
+        StationMeasure,
+        StationScale,
+        StationComplex,
+        StationComplexMeasure,
+        StationComplexScale
+    )
+    from .floodareas.models import (
+        FloodareaMeta,
+        FloodareaJson,
+        Floodarea,
+        FloodareaPolygon,
+        FloodareaMetrics
+    )
+    from .floodreadings.models import (
+        ReadingHydro
+    )
+    db.create_all()
+    click.echo("✅ Database tables created.")
 
 
 @click.command("load-station-data")   # ← This is the CLI command name you will use in terminal
@@ -78,8 +107,12 @@ def get_hydrology_data_latest_command():
     # noinspection PyProtectedMember
     app = current_app._get_current_object()
     with app.app_context():
+        #TODO This needs to start 14 days prior to latest r_date from ReadingHydro
+        d=datetime.datetime.now(datetime.timezone.utc).date()
         get_hydrology_readings_loop(app=app,
-                                    force_replace=False
+                                    force_start_date=d-datetime.timedelta(3),
+                                    force_end_date=d,
+                                    force_replace=True
                                    )
 
 @click.command('get-hydrology-readings-data-gaps')
