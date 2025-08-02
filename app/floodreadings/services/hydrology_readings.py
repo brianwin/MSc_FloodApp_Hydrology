@@ -15,9 +15,10 @@ from collections import Counter
 #import threading
 
 from flask import current_app
-#import click
+from sqlalchemy import Date
 from sqlalchemy.orm import scoped_session, sessionmaker
 from sqlalchemy.sql import func, distinct, exists, literal_column
+from sqlalchemy.sql.expression import cast
 from sqlalchemy.dialects.postgresql import insert
 #from sqlalchemy import text
 from concurrent.futures import ThreadPoolExecutor
@@ -29,7 +30,7 @@ from dateutil.parser import parse
 
 from app import db
 from ..models import ReadingHydro
-from app.floodstations.models.station import Station
+from app.floodstations.models import HydStation   # to get station labels - just a nice to have
 
 import logging
 logger = logging.getLogger('floodWatch3')
@@ -61,8 +62,8 @@ def get_station_labels(worker_id:int=0):
         #logger.debug(f'(T{worker_id}):Lazy loading station labels')
         try:
             station_labels = {
-                row.stationReference: row.label
-                for row in db.session.query(Station.stationReference, Station.label).all()
+                row.notation: row.label
+                for row in db.session.query(HydStation.notation, HydStation.label).all()
             }
         except Exception as e:
             logger.exception(f'(T{worker_id}):get_station_labels: failed with error: {e}')
@@ -131,7 +132,7 @@ def get_hydrology_readings (datestr: str,
                     logger.info(f"Using existing local file: {filepath}")
                     return df
 
-    # Download if file doesn't exist after optional deletion
+    # Download if the file doesn't exist after optional deletion
     response = requests.get(url, stream=True, timeout=60)
     if response.status_code == 200:
         logger.info(f'Fetched {url}')
@@ -164,7 +165,17 @@ def get_hydrology_readings_loop(upto:int = 3,
     #logger.info(f"torch device:    {torch.cuda.get_device_name(0)}")
 
     if gaps_only:
-        start_date, end_date = get_db_min_max_dates()
+        db_start_date, db_end_date = get_db_min_max_dates()
+        # If force_start_date is provided, pick the latest of the two
+        if force_start_date:
+            start_date = max(db_start_date, force_start_date)
+        else:
+            start_date = db_start_date
+        # If force_end_date is provided, pick the earliest of the two
+        if force_end_date:
+            end_date = min(db_end_date, force_end_date)
+        else:
+            end_date = db_end_date
     else:
         if force_start_date:
             start_date = force_start_date
@@ -185,7 +196,7 @@ def get_hydrology_readings_loop(upto:int = 3,
 
     def date_in_db(d_date) -> bool:
         """Check if a specific date exists in the ReadingHydro table."""
-        return db.session.query(exists().where(func.date(ReadingHydro.r_date) == d_date)).scalar()
+        return db.session.query(exists().where(cast(ReadingHydro.r_date, Date) == d_date)).scalar()
 
     all_ranges = []
     # Build a list of eligible dates to process
@@ -255,6 +266,15 @@ def get_hydrology_readings_loop(upto:int = 3,
     logger.info("Completed processing")
 
 
+def get_db_max_datetime() -> datetime.datetime:
+    logger.debug(f"(hydro) Checking readings in db")
+    db.session.remove()
+    # Get max r_datetime in the DB
+    max_r_datetime = db.session.query(func.max(ReadingHydro.r_datetime)).scalar()
+    logger.debug(f"(hydro) Db max_r_datetime : {max_r_datetime}")
+    return max_r_datetime
+
+
 def get_db_min_max_dates() -> [datetime.date, datetime.date]:
     logger.debug(f"(hydro) Checking readings in db")
     db.session.remove()
@@ -267,7 +287,7 @@ def get_db_min_max_dates() -> [datetime.date, datetime.date]:
     #logger.debug(f"(hydro) max_r_date : {max_r_date}")
 
     # Total days in the range (inclusive)
-    num_dates = (max_r_date - min_r_date).days +1
+    num_dates = (max_r_date - min_r_date).days  # +1 ???
     #logger.debug(f"(hydro) num_dates : {num_dates}")
 
     # Count unique days present in the DB
@@ -279,7 +299,7 @@ def get_db_min_max_dates() -> [datetime.date, datetime.date]:
     #logger.debug(f"(hydro) missing_dates : {missing_dates}")
 
     logger.debug(f"(hydro) Db has readings between {min_r_date} and {max_r_date} - {num_dates} days range ({missing_dates} missing)")
-    return min_r_date, max_r_date
+    return [min_r_date, max_r_date]
 
 
 def get_start_end_dates(upto:int = 7) -> [datetime.date, datetime.date]:
@@ -301,7 +321,7 @@ def get_start_end_dates(upto:int = 7) -> [datetime.date, datetime.date]:
     # Step 2: Set loop range end
     end_date = (datetime.datetime.now(datetime.timezone.utc).date() - datetime.timedelta(days=upto))
     logger.debug(f"{start_date} to {end_date}")
-    return start_date, end_date
+    return [start_date, end_date]
 
 def delete_readings_by_r_datetime(start_date, end_date):
     # the beginning of the day at start_date, UTC aware
@@ -398,7 +418,7 @@ def get_scoped_session():
     return scoped_session(session_factory)
 
 
-def parse_float_safe(val: str, min_val: float =-9999999.0, max_val:float =9999999.0) -> [float|None, int] :
+def parse_float_safe(val: str, min_val: float =-9999999.0, max_val:float =9999999.0) -> (float|None, int) :
     try:
         # Catch actual NaN objects (e.g., from pandas, float('nan'), numpy.nan)
         if pd.isna(val):
@@ -445,7 +465,7 @@ def insert_chunk(chunk_df: pd.DataFrame,
                  ea_datasource:str = 'EA',
                  bulk_load:bool = False
                 ) -> (dict, dict):
-    from . import get_fieldvalue_for_db  # string converter
+    #from . import get_fieldvalue_for_db  # string converter
 
     session = get_scoped_session()
     #logger.info(f"Inserting chunk {chunk_num} using scoped session")
@@ -470,6 +490,7 @@ def insert_chunk(chunk_df: pd.DataFrame,
             notation = measure.replace(f'{ea_root_url}/id/measures/', '').strip() if isinstance(measure, str) else None
 
             parsed = parse_notation(notation)
+            label = stn_labels.get(parsed.get("station_id")) if stn_labels else None
 
             val, status = parse_float_safe(row.get("value"))
             status_counter[status] += 1
@@ -493,6 +514,7 @@ def insert_chunk(chunk_df: pd.DataFrame,
 
                 'measure' : measure,
                 'notation' : notation,
+                'label' : label,
 
                 # Value
                 'value' : val,
@@ -517,7 +539,7 @@ def insert_chunk(chunk_df: pd.DataFrame,
                 'updated': None
             }
 
-            readings.append(reading)  # whether "reading" came from "concise" or "full" section
+            readings.append(reading)
 
         #logger.info(f'Chunk {chunk_num}: generated - {len(readings)} records')
         #logger.debug(f"Readings generated: {readings[:2]}")  # Print first two for inspection
@@ -528,7 +550,7 @@ def insert_chunk(chunk_df: pd.DataFrame,
 
         if bulk_load:
             # Just bulk insert all rows available in the datafile
-            session.bulk_insert_mappings(ReadingHydro, readings)
+            session.bulk_insert_mappings(ReadingHydro, readings)  # type: ignore   #Tells type checker: ReadingHydro is a mapped class
         else:
             stmt = insert(ReadingHydro).values(readings)
 
@@ -558,6 +580,7 @@ def insert_chunk(chunk_df: pd.DataFrame,
 
             # Counts
             rows = result.fetchall()
+            # Note: row.xmax is not a reliable way to distinguish between insert and update from an upsert statement
             insupd_counter['inserted'] = sum(1 for row in rows if row.xmax == 0)  # Inserted rows
             insupd_counter['updated']  = sum(1 for row in rows if row.xmax != 0)  # Updated rows
             #logger.debug(f"Chunk {chunk_num}: Inserted rows: {insupd_counter['inserted']}, Updated rows: {insupd_counter['updated']}")
