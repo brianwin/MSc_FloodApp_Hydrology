@@ -1,5 +1,4 @@
 from app.extensions import db
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy import text
 
 class FloodareaJson(db.Model):
@@ -16,4 +15,4 @@ class FloodareaJson(db.Model):
         db.ForeignKey('ea_source.floodarea_meta.floodarea_meta_id', ondelete='CASCADE'),
         nullable=False
     )
-    floodarea_data = db.Column(JSONB)
+    floodarea_data = db.Column(db.JSON)

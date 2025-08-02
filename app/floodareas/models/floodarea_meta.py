@@ -9,7 +9,7 @@ class FloodareaMeta(db.Model):
     created = db.Column(db.DateTime, server_default=text('CURRENT_TIMESTAMP'))
     context = db.Column(db.String(256))
     publisher = db.Column(db.String(256))
-    licence = db.Column(db.String(256))
+    license = db.Column(db.String(256))
     documentation = db.Column(db.String(256))
     version = db.Column(db.Numeric(2, 1))
     comment = db.Column(db.String(256))

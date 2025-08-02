@@ -5,7 +5,7 @@ create table if not exists ea_source.floodarea_meta
     created           timestamp default CURRENT_TIMESTAMP,
     context           varchar(256),
     publisher         varchar(256),
-    licence           varchar(256),
+    license           varchar(256),
     documentation     varchar(256),
     version           numeric(2, 1),
     comment           varchar(256),

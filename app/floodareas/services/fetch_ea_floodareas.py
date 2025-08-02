@@ -123,7 +123,7 @@ def save_floodarea_meta(context: str, meta: dict) -> int:
     floodarea_meta = FloodareaMeta(
         context = context,
         publisher = meta.get('publisher'),
-        licence = meta.get('licence'),
+        license = meta.get('license'),
         documentation = meta.get('documentation'),
         version = float(meta.get('version')),
         comment = meta.get('comment'),

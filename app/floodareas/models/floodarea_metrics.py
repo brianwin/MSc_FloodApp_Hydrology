@@ -1,8 +1,5 @@
 from app.extensions import db
-#from sqlalchemy.dialects.postgresql import JSONB
 from geoalchemy2 import Geometry
-#from sqlalchemy import text
-
 
 class FloodareaMetrics(db.Model):
     __tablename__ = 'floodarea_metrics'
