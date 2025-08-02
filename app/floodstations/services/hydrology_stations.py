@@ -1,159 +1,196 @@
-# scripts/fetch_ea_stations.py
+# services/hydrology_stations.py
 import requests
-import json
 
 from sqlalchemy import text
 import time
-
-from geoalchemy2 import WKBElement
-from geoalchemy2.shape import from_shape
-from shapely.geometry import Point
-from shapely.ops import transform
-from pyproj import Transformer
+from datetime import datetime
+from ...utils import get_geoms
 
 from app import db
-from ..models import (
-    StationMeta, StationJson, Station, StationComplex,
-    StationScale, StationMeasure
-)
-
+from ..models import( HydStationMeta, HydStationJson,
+                      HydStation, HydStationType, HydStationObservedProp,
+                      HydStationStatus, HydStationMeasure, HydStationColocated
+                    )
 import logging
-
-from ..models.hyd_station_meta import HydStationMeta
-
 logger = logging.getLogger('floodWatch3')
 
-#ea_root_url = 'http://environment.data.gov.uk/flood-monitoring'  # original source data (superseded)
 ea_root_url = 'http://environment.data.gov.uk/hydrology'          # source data for extended history
 
 def load_station_data_from_ea(truncate_all=True):
-    url = f'{ea_root_url}/id/stations?_view=full'
+    url = f'{ea_root_url}/id/stations?_limit=20000'
     response = requests.get(url)
     data = response.json()
+    #print (data['meta'])
     logger.info(f'Fetched {url}')
     logger.info(f'Response {response.status_code}')
 
     if truncate_all:
         truncate_all_stations()
 
+    start_time = time.time()
+
     with db.session.begin():
         # save the "meta" table contents
-        station_meta_id = save_station_meta(data['meta'])
+        station_meta_id = save_hyd_station_meta(data['meta'])
+        count_items = load_stations_from_json(station_meta_id, data['items'])
 
-        count_items = 0
-        start_time = time.time()
-        for station in data['items']:
-            count_items += 1
-            if count_items % 500 == 0:
-                logger.info(f'Committed {count_items} stations - elapsed= {int(time.time() - start_time)} seconds')
+        # Get counts within the same transaction
+        station_count = db.session.query(HydStation).count()
+        station_measure_count = db.session.query(HydStationMeasure).count()
 
-            # save the raw item data row to the "json" table
-            station_id = save_station_json(station_meta_id, station)
-            RLOIid = station.get('RLOIid')
+        logger.info(f'Input items : {count_items}')
+        logger.info(f'Loaded items: {station_count} stations, {station_measure_count} measures')
+        logger.info(f'Elapsed= {int(time.time() - start_time)} seconds')
 
-            # there are 2x occurrences where a string(list) is presented for several parameters
-            # save to table StationComplex, effectively ignored for this application
-            if isinstance(RLOIid, list):
-                complex_station = StationComplex(
-                    station_id=station_id,
-                    EnvAgy_id=station.get('@id'),
-                    RLOIid=json.dumps(station.get('RLOIid')),
-                    catchmentName=station.get('catchmentName'),
-                    dateOpened=station.get('dateOpened'),
-                    northing=json.dumps(station.get('northing')),
-                    easting=json.dumps(station.get('easting')),
-                    label=json.dumps(station.get('label')),
-                    lat=json.dumps(station.get('lat')),
-                    long=json.dumps(station.get('long')),
-                    notation=station.get('notation'),
-                    riverName=station.get('riverName'),
-                    stationReference=station.get('stationReference'),
-                    status=json.dumps(station.get('status')),
-                    town=station.get('town'),
-                    wiskiID=station.get('wiskiID'),
-                    gridReference=station.get('gridReference'),
-                    datumOffset=int(station.get('datumOffset', 0)),
-                    #stageScale=station.get('stageScale'),
-                    #downstageScale=station.get('downstageScale'),
-                    #geom4326=geom4326,
-                    #geom27700=geom27700
-                )
-                db.session.add(complex_station)
 
+def load_stations_from_json(station_meta_id:int, items) -> int:
+    count_items = 0
+    for item in items:
+        count_items += 1
+        if count_items % 500 == 0:
+            logger.info(f'Loaded {count_items} stations')
+
+        geom4326, geom27700 = get_geoms(item.get('lat'), item.get('long'))
+
+        # Handle rloi_id - convert this list to string if needed
+        rloi_id = item.get('RLOIid')
+        if isinstance(rloi_id, list):
+            rloi_id = ','.join(rloi_id)  # or rloi_id[0] if you want just the first one
+
+        # Handle rloi_station_link - extract URLs
+        rloi_links = item.get('rloiStationLink', [])
+        if isinstance(rloi_links, dict):
+            rloi_links = [rloi_links]  # convert single dict to list
+        rloi_station_link = ','.join(link.get('@id', '') for link in rloi_links) if rloi_links else None
+
+        #TODO Remember this kind of thing ....
+        # status = (station.get('status') or '').replace(ea_root_url, '{root}'),
+
+        # Create the Station record
+        hyd_station = HydStation(
+            meta_id = station_meta_id,
+            json_id = item.get('@id'),
+            label = item.get('label'),
+            notation = item.get('notation'),
+            easting = int(item.get('easting') or 0),   # float?
+            northing = int(item.get('northing') or 0), # float?
+            lat = float(item.get('lat') or 0),
+            long = float(item.get('long') or 0),
+            catchment_name = item.get('catchmentName'),
+            river_name = item.get('riverName'),
+            town = item.get('town'),
+            station_guid = item.get('stationGuid'),
+            station_reference = item.get('stationReference'),
+            wiski_id = item.get('wiskiID'),
+            rloi_id=rloi_id,  # Use processed rloi_id
+            rloi_station_link=rloi_station_link,  # Use processed rloi_station_link
+            catchment_area = float(item.get('catchmentArea') or 0),
+            date_opened = parse_date(item.get('dateOpened')),
+            date_closed = parse_date(item.get('dateClosed')),
+            nrfa_station_id = item.get('nrfaStationID'),
+            nrfa_station_url = item.get('nrfaStationURL'),
+            datum = int(item.get('datum') or 0),
+            borehole_depth = float(item.get('boreholeDepth') or 0),
+            aquifer = item.get('aquifer'),
+            status_reason = item.get('statusReason'),
+            data_quality_message = item.get('dataQualityMessage'),
+            data_quality_statement = (
+                item.get('dataQualityStatement', {}).get('@id')
+                if isinstance(item.get('dataQualityStatement'), dict)
+                else None
+            ),
+            sample_of_id = (
+                item.get('sampleOf', {}).get('@id')
+                if isinstance(item.get('sampleOf'), dict)
+                else None
+            ),
+            sample_of_label = (
+                item.get('sampleOf', {}).get('label')
+                if isinstance(item.get('sampleOf'), dict)
+                else None
+            ),
+            geom4326=geom4326,
+            geom27700=geom27700,
+        )
+        db.session.add(hyd_station)
+        db.session.flush()  # So station.id is available
+
+        # ok, this is a little bit "cart before the horse"
+        # Save the raw item data row to the "json" table, given the station_id
+        save_station_json(hyd_station.id, item)
+
+        # Types
+        for t in item.get('type', []):
+            stype = HydStationType(
+                station_id=hyd_station.id,
+                type_id=t.get('@id'),
+            )
+            db.session.add(stype)
+
+        # Observed Properties
+        for prop in item.get('observedProperty', []):
+            op = HydStationObservedProp(
+                station_id=hyd_station.id,
+                property_id=prop.get('@id')
+            )
+            db.session.add(op)
+
+        # Statuses
+        for status in item.get('status', []):
+            label = status.get('label')
+            if isinstance(label, dict):
+                status_label_id = label.get('@id')
+            elif isinstance(label, str):
+                status_label_id = label
             else:
-                geom4326, geom27700 = get_geoms(station.get('lat'), station.get('long'))
+                status_label_id = None
 
-                norm_station = Station(
-                    station_id=station_id,
-                    EnvAgy_id=station.get('@id', '').replace(ea_root_url, '{root}'),
-                    RLOIid=RLOIid,
-                    catchmentName=station.get('catchmentName'),
-                    dateOpened=station.get('dateOpened'),
-                    northing=int(station.get('northing') or 0),
-                    easting=int(station.get('easting') or 0),
-                    label=station.get('label'),
-                    lat=float(station.get('lat') or 0),
-                    long=float(station.get('long') or 0),
-                    notation=station.get('notation'),
-                    riverName=station.get('riverName'),
-                    stationReference=station.get('stationReference'),
-                    status=(station.get('status') or '').replace(ea_root_url, '{root}'),
-                    town=station.get('town'),
-                    wiskiID=station.get('wiskiID'),
-                    gridReference=station.get('gridReference'),
-                    datumOffset=int(station.get('datumOffset', 0)),
-                    #stageScale=station.get('stageScale'),
-                    #downstageScale=station.get('downstageScale'),
-                    geom4326=geom4326,
-                    geom27700=geom27700
+            ss = HydStationStatus(
+                station_id=hyd_station.id,
+                status_id=status.get('@id'),
+                status_label_id=status_label_id
+            )
+            db.session.add(ss)
+
+        # Measures
+        for measure in item.get('measures', []):
+            m = HydStationMeasure(
+                station_id=hyd_station.id,
+                measure_id=measure.get('@id'),
+                parameter=measure.get('parameter'),
+                period=measure.get('period'),
+                value_statistic_id=(
+                    measure.get('valueStatistic', {}).get('@id')
+                    if isinstance(measure.get('valueStatistic'), dict)
+                    else None
                 )
-                db.session.add(norm_station)
+            )
+            db.session.add(m)
 
-                for scale_key in ['stageScale', 'downstageScale']:
-                    scale = station.get(scale_key)
-                    if scale and not isinstance(scale, str):
-                        scale_obj = StationScale(
-                            station_id=station_id,
-                            EnvAgy_id=scale.get('@id', '').replace(ea_root_url, '{root}'),
-                            highestRecent_id=scale.get('highestRecent', {}).get('@id', '').replace(ea_root_url, '{root}'),
-                            highestRecent_dateTime=scale.get('highestRecent', {}).get('dateTime'),
-                            highestRecent_value=scale.get('highestRecent', {}).get('value'),
-                            maxOnRecord_id=scale.get('maxOnRecord', {}).get('@id', '').replace(ea_root_url, '{root}'),
-                            maxOnRecord_dateTime=scale.get('maxOnRecord', {}).get('dateTime'),
-                            maxOnRecord_value=scale.get('maxOnRecord', {}).get('value'),
-                            minOnRecord_id=scale.get('minOnRecord', {}).get('@id', '').replace(ea_root_url, '{root}'),
-                            minOnRecord_dateTime=scale.get('minOnRecord', {}).get('dateTime'),
-                            minOnRecord_value=scale.get('minOnRecord', {}).get('value'),
-                            scaleMax=scale.get('scaleMax'),
-                            typicalRangeHigh=scale.get('typicalRangeHigh'),
-                            typicalRangeLow=scale.get('typicalRangeLow')
-                        )
-                        db.session.add(scale_obj)
+        # Colocated stations
+        for coloc in item.get('colocatedStation', []):
+            coloc_rec = HydStationColocated(
+                station_id=hyd_station.id,
+                colocated_id=coloc.get('@id')
+            )
+            db.session.add(coloc_rec)
 
-                # Insert measures
-                for measure in station.get('measures', []):
-                    measure_obj = StationMeasure(
-                        station_id=station_id,
-                        EnvAgy_id=measure.get('@id', '').replace(ea_root_url, '{root}'),
-                        parameter=measure.get('parameter'),
-                        parameterName=measure.get('parameterName'),
-                        period=measure.get('period'),
-                        qualifier=measure.get('qualifier'),
-                        unitName=measure.get('unitName')
-                    )
-                    db.session.add(measure_obj)
+    #TODO What happened to ['stageScale', 'downstageScale']
+    return count_items  # Return the count for logging
 
-    db.session.commit()
-    station_count = db.session.query(Station).count()
-    station_measure_count = db.session.query(StationMeasure).count()
-    station_scale_count = db.session.query(StationScale).count()
-    logger.info(f'Station data loaded successfully - {station_count} stations, {station_measure_count} measures {station_scale_count} scales')
-    logger.info(f'Elapsed= {int(time.time() - start_time)} seconds')
+
+def parse_date(val):
+    if val:
+        try:
+            return datetime.strptime(val, '%Y-%m-%d').date()
+        except Exception:
+            return None
+    return None
 
 
 def truncate_all_stations():
     # Truncate *meta - all other tables will cascade delete
-    count = db.session.query(Station).count()
+    count = db.session.query(HydStation).count()
     logger.info(f'stations - row count: {count}')
     db.session.execute (text('TRUNCATE TABLE ea_source.hyd_station_meta CASCADE'))
     db.session.commit()
@@ -166,42 +203,28 @@ def truncate_all_stations():
 def save_hyd_station_meta(meta: dict) -> int:
     # Insert meta
     hyd_station_meta = HydStationMeta(
+        json_id=meta.get('@id'),
         publisher = meta.get('publisher'),
-        licence = meta.get('licence'),
-        licenceName = meta.get('licenceName'),
+        license = meta.get('license'),
+        licenseName = meta.get('licenseName'),
         documentation = meta.get('documentation'),
-        version = float(meta.get('version')),
+        version = meta.get('version'),
         comment = meta.get('comment'),
         hasFormat = meta.get('hasFormat')
     )
     db.session.add(hyd_station_meta)
-    db.session.flush()  # To get station_meta.id
-    return hyd_station_meta.station_meta_id
+    db.session.flush()  # To get hyd_station_meta.id
+    return hyd_station_meta.id
 
 
-def save_station_json(station_meta_id: int, station: dict) -> int:
+def save_station_json(station_id: int, item):
     # Save full JSON
-    station_json = StationJson(
-        station_meta_id=station_meta_id,
-        station_data=station
+    station_json = HydStationJson(
+        station_id=station_id,
+        station_data=item
     )
     db.session.add(station_json)
     db.session.flush()
-    return station_json.station_id
 
 
-def get_geoms(lat: float, long: float) -> [WKBElement, WKBElement]:
-    if lat is not None and long is not None:
-        lat = float(lat)
-        long = float(long)
 
-        point_4326 = Point(long, lat)
-        transformer = Transformer.from_crs("EPSG:4326", "EPSG:27700", always_xy=True)
-        point_27700 = transform(transformer.transform, point_4326)
-
-        geom4326 = from_shape(point_4326, srid=4326)
-        geom27700 = from_shape(point_27700, srid=27700)
-    else:
-        geom4326 = None
-        geom27700 = None
-    return geom4326, geom27700

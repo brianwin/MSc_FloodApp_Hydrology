@@ -1,1 +1,2 @@
-from .fetch_ea_stations import load_station_data_from_ea
+from .hydrology_stations import load_station_data_from_ea
+from .hydrology_measures import load_measure_data_from_ea

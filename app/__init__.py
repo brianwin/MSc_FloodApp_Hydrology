@@ -6,7 +6,7 @@ from app.utils.logger import setup_logging
 from config import DevelopmentConfig, ProductionConfig
 from .floodareas.models import Floodarea
 from .floodreadings.models import ReadingHydro
-from .floodstations.models import Station
+from .floodstations.models import HydStation
 
 from .utils.logger import stop_logging
 #from utils.db_logger import PostgresWorker
@@ -15,13 +15,13 @@ from .utils.logger import stop_logging
 #from threading import Event
 
 def create_app(config_class=DevelopmentConfig):
-    app = Flask(__name__, instance_relative_config=True)
+    app = Flask(__name__, instance_relative_config=True)  # This enables instance folder support
 
     # Config
-    app.config.from_object(config_class)
+    app.config.from_object(config_class)  # First loads main config.py
 
     # override with instance/config.py
-    app.config.from_pyfile('config.py', silent=True)
+    app.config.from_pyfile('config.py', silent=False)  # Then loads instance/config.py
 
     # for logging ALL sql statements sent to the database
     #app.config['SQLALCHEMY_ECHO'] = False
@@ -53,9 +53,20 @@ def create_app(config_class=DevelopmentConfig):
     def test_page():
         return '<h1>Testing the Flask Application Factory Pattern</h1>'
 
+    @app.route('/debug-config')
+    def debug_config():
+        if app.debug:
+            return {
+                'SQLALCHEMY_DATABASE_URI': app.config['SQLALCHEMY_DATABASE_URI'].split('@')[1],  # Show only host/db
+                'DEBUG': app.config['DEBUG'],
+                'config_source': 'instance/config.py'
+            }
+        return {'message': 'Only available in debug mode'}
+
     # Register CLI
     from app.cli import (
         load_station_data_command,
+        load_measure_data_command,
         load_floodarea_data_command,
         get_hydrology_data_command,
         get_hydrology_data_latest_command,
@@ -63,6 +74,7 @@ def create_app(config_class=DevelopmentConfig):
         init_db_command
     )
     app.cli.add_command(load_station_data_command)
+    app.cli.add_command(load_measure_data_command)
     app.cli.add_command(load_floodarea_data_command)
     app.cli.add_command(get_hydrology_data_command)
     app.cli.add_command(get_hydrology_data_latest_command)
