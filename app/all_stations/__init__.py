@@ -1,4 +1,4 @@
-#app\floodstations\__init__.py
+#app\all_stations\__init__.py
 from flask import Blueprint
 
 bp = Blueprint('stations', __name__,

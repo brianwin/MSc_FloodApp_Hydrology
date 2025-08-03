@@ -6,7 +6,7 @@ from app.utils.logger import setup_logging
 from config import DevelopmentConfig, ProductionConfig
 from .floodareas.models import Floodarea
 from .floodreadings.models import ReadingHydro
-from .floodstations.models import HydStation
+from .all_stations.models import HydStation
 
 from .utils.logger import stop_logging
 #from utils.db_logger import PostgresWorker
@@ -44,8 +44,8 @@ def create_app(config_class=DevelopmentConfig):
     from app.floodreadings import bp as floodreadings_bp
     app.register_blueprint(floodreadings_bp, url_prefix='/floodreadings')
 
-    from app.floodstations import bp as floodstations_bp
-    app.register_blueprint(floodstations_bp, url_prefix='/floodstations')
+    from app.all_stations import bp as all_stations_bp
+    app.register_blueprint(all_stations_bp, url_prefix='/all_stations')
 
     #logger.info('Blueprints imported')
 

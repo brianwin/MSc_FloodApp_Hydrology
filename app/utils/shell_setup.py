@@ -13,7 +13,7 @@ def setup_console():
     print(f"Instance path: {app.instance_path}")
 
     from app.extensions import db
-    #from app.floodstations.models import Station
+    #from app.all_stations.models import Station
     from app.floodreadings.models import ReadingHydro
     #from app.floodareas.models import Floodarea
     print("🔁 Shell context populated with: db, Station, Reading_Hydro, Floodarea")

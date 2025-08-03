@@ -4,7 +4,7 @@ from flask import current_app
 from app.extensions import db
 import datetime
 
-from .floodstations.services import load_station_data_from_ea, load_measure_data_from_ea
+from .all_stations.services import load_station_data_from_ea, load_measure_data_from_ea
 from .floodareas.services import load_floodarea_data_from_ea
 from .floodreadings.services import get_hydrology_readings_loop
 from .floodreadings.models import ReadingHydro
@@ -23,7 +23,7 @@ current_app: LocalProxy
 @with_appcontext
 def init_db_command():
     # All context-sensitive imports and init for building the database schema
-    from .floodstations.models import (     # noqa  (suppress 'Unused'warning)
+    from .all_stations.models import (     # noqa  (suppress 'Unused'warning)
         HydStationMeta, HydStationJson,
         HydStation, HydStationType, HydStationObservedProp,
         HydStationStatus, HydStationMeasure, HydStationColocated,

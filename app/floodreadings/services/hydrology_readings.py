@@ -30,7 +30,7 @@ from dateutil.parser import parse
 
 from app import db
 from ..models import ReadingHydro
-from app.floodstations.models import HydStation   # to get station labels - just a nice to have
+from app.all_stations.models import HydStation   # to get station labels - just a nice to have
 
 import logging
 logger = logging.getLogger('floodWatch3')
