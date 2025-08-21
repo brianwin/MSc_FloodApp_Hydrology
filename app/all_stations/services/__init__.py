@@ -1,2 +1,5 @@
-from .hydrology_stations import load_station_data_from_ea
-from .hydrology_measures import load_measure_data_from_ea
+from .hydrology_stations import load_hyd_station_data_from_ea
+from .hydrology_measures import load_hyd_measure_data_from_ea
+
+from .floodmonitoring_stations import load_fld_station_data_from_ea
+from .floodmonitoring_measures import load_fld_measure_data_from_ea

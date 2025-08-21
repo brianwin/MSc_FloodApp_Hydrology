@@ -5,8 +5,8 @@ import json
 
 from sqlalchemy import text
 import time
+from ...utils import get_geoms
 
-from geoalchemy2 import WKBElement
 from geoalchemy2.shape import from_shape
 from shapely.geometry import Point, shape  #, MultiPolygon
 from shapely.geometry import box as shapely_box
@@ -143,23 +143,6 @@ def save_floodarea_json(floodarea_meta_id: int, floodarea: dict) -> int:
         db.session.add(floodarea_json)
         db.session.flush()
         return floodarea_json.floodarea_id
-
-
-def get_geoms(lat: float, long: float) -> [WKBElement, WKBElement]:
-    if lat is not None and long is not None:
-        lat = float(lat)
-        long = float(long)
-
-        point_4326 = Point(long, lat)
-        transformer = Transformer.from_crs("EPSG:4326", "EPSG:27700", always_xy=True)
-        point_27700 = transform(transformer.transform, point_4326)
-
-        geom4326 = from_shape(point_4326, srid=4326)
-        geom27700 = from_shape(point_27700, srid=27700)
-    else:
-        geom4326 = None
-        geom27700 = None
-    return geom4326, geom27700
 
 
 def validate_polygon_json(p_geojson: str | dict) -> dict|None:

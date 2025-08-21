@@ -13,7 +13,7 @@ logger = logging.getLogger('floodWatch3')
 
 ea_root_url = 'http://environment.data.gov.uk/hydrology'          # source data for extended history
 
-def load_measure_data_from_ea(truncate_all=True):
+def load_hyd_measure_data_from_ea(truncate_all=True):
     url = f'{ea_root_url}/id/measures?_limit=50000'
     response = requests.get(url)
     data = response.json()
@@ -29,7 +29,7 @@ def load_measure_data_from_ea(truncate_all=True):
     with db.session.begin():
         # save the "meta" table contents
         measure_meta_id = save_hyd_measure_meta(data['meta'])
-        count_items = load_measures_from_json(measure_meta_id, data['items'])
+        count_items = load_hyd_measures_from_json(measure_meta_id, data['items'])
 
         # Get counts within the same transaction
         measure_count = db.session.query(HydMeasure).count()
@@ -40,7 +40,7 @@ def load_measure_data_from_ea(truncate_all=True):
 
 
 #def save_hyd_measure_meta_and_measure(meta: dict, items: list) -> int:
-def load_measures_from_json(measure_meta_id:int, items) -> int:
+def load_hyd_measures_from_json(measure_meta_id:int, items) -> int:
     count_items = 0
     for item in items:
         count_items += 1
@@ -71,6 +71,7 @@ def load_measures_from_json(measure_meta_id:int, items) -> int:
             observedProperty_id  = (item.get("observedProperty") or {}).get("@id"),
             observedProperty_label = (item.get("observedProperty") or {}).get("label"),
             station_id           = (item.get("station") or {}).get("@id"),
+            station_id_label     = ((item.get("station") or {}).get("@id")).replace('http://environment.data.gov.uk/hydrology/id/stations/', ''),
             station_label        = (item.get("station") or {}).get("label"),
             station_wiskiID      = (item.get("station") or {}).get("wiskiID"),
             station_stationReference = (item.get("station") or {}).get("stationReference"),
@@ -103,7 +104,7 @@ def truncate_all_measures():
 
 def save_hyd_measure_meta(meta: dict) -> int:
     # Insert meta
-    hyd_measure_meta = HydMeasureMeta(
+    measure_meta = HydMeasureMeta(
         json_id=meta.get('@id'),
         publisher = meta.get('publisher'),
         license = meta.get('license'),
@@ -113,12 +114,12 @@ def save_hyd_measure_meta(meta: dict) -> int:
         comment = meta.get('comment'),
         hasFormat = meta.get('hasFormat')
     )
-    db.session.add(hyd_measure_meta)
+    db.session.add(measure_meta)
     db.session.flush()  # To get hyd_measure_meta.id
-    return hyd_measure_meta.id
+    return measure_meta.id
 
 
-def save_measure_json(measure_id: int, item):
+def save_hyd_measure_json(measure_id: int, item):
     # Save full JSON
     measure_json = HydMeasureJson(
         measure_id=measure_id,

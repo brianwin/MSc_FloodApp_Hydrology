@@ -1,10 +1,12 @@
+# app/cli.py
 import click
 from flask.cli import with_appcontext
 from flask import current_app
 from app.extensions import db
 import datetime
 
-from .all_stations.services import load_station_data_from_ea, load_measure_data_from_ea
+from .all_stations.services import load_hyd_station_data_from_ea, load_hyd_measure_data_from_ea
+from .all_stations.services import load_fld_station_data_from_ea, load_fld_measure_data_from_ea
 from .floodareas.services import load_floodarea_data_from_ea
 from .floodreadings.services import get_hydrology_readings_loop
 from .floodreadings.models import ReadingHydro
@@ -22,37 +24,59 @@ current_app: LocalProxy
 @click.command("init-db")
 @with_appcontext
 def init_db_command():
+    # db.create_all() will create tables for all models that have been previously imported.
+    # Therefore, it is not necessary to import models here
+
     # All context-sensitive imports and init for building the database schema
-    from .all_stations.models import (     # noqa  (suppress 'Unused'warning)
-        HydStationMeta, HydStationJson,
-        HydStation, HydStationType, HydStationObservedProp,
-        HydStationStatus, HydStationMeasure, HydStationColocated,
-        HydMeasureMeta, HydMeasure
-    )
-    from .floodareas.models import (     # noqa  (suppress 'Unused'warning)
-        FloodareaMeta,
-        FloodareaJson,
-        Floodarea,
-        FloodareaPolygon,
-        FloodareaMetrics
-    )
+    #from .all_stations.models import (     # noqa  (suppress 'Unused'warning)
+    #    HydStationMeta, HydStationJson,
+    #    HydStation, HydStationType, HydStationObservedProp,
+    #    HydStationStatus, HydStationMeasure, HydStationColocated,
+    #    HydMeasureMeta, HydMeasure
+    #)
+    #from .floodareas.models import (     # noqa  (suppress 'Unused'warning)
+    #    FloodareaMeta,
+    #    FloodareaJson,
+    #    Floodarea,
+    #    FloodareaPolygon,
+    #    FloodareaMetrics
+    #)
     #from .floodreadings.models import (ReadingHydro)
+
+    print(f'The following tables will be created if they do not already exist')
+    for table in sorted(db.metadata.sorted_tables, key=lambda t: (t.schema or '', t.name)):
+        print(f'{table.schema}.{table.name}')
 
     db.create_all()
     click.echo("✅ Database tables created.")
 
 
-@click.command("load-station-data")   # ← This is the CLI command name you will use in the terminal
+@click.command("load-hyd-station-data")   # ← This is the CLI command name you will use in the terminal
 @with_appcontext
-def load_station_data_command():
+def load_hyd_station_data_command():
     """Load EA station data into the database."""
-    load_station_data_from_ea()
+    load_hyd_station_data_from_ea()
 
-@click.command("load-measure-data")   # ← This is the CLI command name you will use in the terminal
+@click.command("load-hyd-measure-data")   # ← This is the CLI command name you will use in the terminal
 @with_appcontext
-def load_measure_data_command():
+def load_hyd_measure_data_command():
     """Load EA measure data into the database."""
-    load_measure_data_from_ea()
+    load_hyd_measure_data_from_ea()
+
+@click.command("load-fld-station-data")   # ← This is the CLI command name you will use in the terminal
+@with_appcontext
+def load_fld_station_data_command():
+    """Load EA station data into the database."""
+    load_fld_station_data_from_ea()
+
+@click.command("load-fld-measure-data")   # ← This is the CLI command name you will use in the terminal
+@with_appcontext
+def load_fld_measure_data_command():
+    """Load EA measure data into the database."""
+    load_fld_measure_data_from_ea()
+
+
+
 
 @click.command("load-floodarea-data")   # ← This is the CLI command name you will use in the terminal
 @with_appcontext

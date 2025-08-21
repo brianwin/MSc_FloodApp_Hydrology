@@ -68,6 +68,8 @@ class HydMeasure(db.Model):
     observedProperty_label= db.Column(db.Text)
 
     station_id            = db.Column(db.Text)
+    station_id_label      = db.Column(db.Text)
+
     station_label         = db.Column(db.Text)
     station_wiskiID       = db.Column(db.Text)
     station_stationReference = db.Column(db.Text)

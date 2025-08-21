@@ -65,16 +65,20 @@ def create_app(config_class=DevelopmentConfig):
 
     # Register CLI
     from app.cli import (
-        load_station_data_command,
-        load_measure_data_command,
+        load_hyd_station_data_command,
+        load_hyd_measure_data_command,
+        load_fld_station_data_command,
+        load_fld_measure_data_command,
         load_floodarea_data_command,
         get_hydrology_data_command,
         get_hydrology_data_latest_command,
         get_hydrology_data_gaps_command,
         init_db_command
     )
-    app.cli.add_command(load_station_data_command)
-    app.cli.add_command(load_measure_data_command)
+    app.cli.add_command(load_hyd_station_data_command)
+    app.cli.add_command(load_hyd_measure_data_command)
+    app.cli.add_command(load_fld_station_data_command)
+    app.cli.add_command(load_fld_measure_data_command)
     app.cli.add_command(load_floodarea_data_command)
     app.cli.add_command(get_hydrology_data_command)
     app.cli.add_command(get_hydrology_data_latest_command)

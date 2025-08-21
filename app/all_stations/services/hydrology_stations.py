@@ -5,6 +5,7 @@ from sqlalchemy import text
 import time
 from datetime import datetime
 from ...utils import get_geoms
+from ...utils import parse_date
 
 from app import db
 from ..models import( HydStationMeta, HydStationJson,
@@ -16,7 +17,7 @@ logger = logging.getLogger('floodWatch3')
 
 ea_root_url = 'http://environment.data.gov.uk/hydrology'          # source data for extended history
 
-def load_station_data_from_ea(truncate_all=True):
+def load_hyd_station_data_from_ea(truncate_all=True):
     url = f'{ea_root_url}/id/stations?_limit=20000'
     response = requests.get(url)
     data = response.json()
@@ -32,7 +33,7 @@ def load_station_data_from_ea(truncate_all=True):
     with db.session.begin():
         # save the "meta" table contents
         station_meta_id = save_hyd_station_meta(data['meta'])
-        count_items = load_stations_from_json(station_meta_id, data['items'])
+        count_items = load_hyd_stations_from_json(station_meta_id, data['items'])
 
         # Get counts within the same transaction
         station_count = db.session.query(HydStation).count()
@@ -43,7 +44,7 @@ def load_station_data_from_ea(truncate_all=True):
         logger.info(f'Elapsed= {int(time.time() - start_time)} seconds')
 
 
-def load_stations_from_json(station_meta_id:int, items) -> int:
+def load_hyd_stations_from_json(station_meta_id:int, items) -> int:
     count_items = 0
     for item in items:
         count_items += 1
@@ -72,10 +73,10 @@ def load_stations_from_json(station_meta_id:int, items) -> int:
             json_id = item.get('@id'),
             label = item.get('label'),
             notation = item.get('notation'),
-            easting = int(item.get('easting') or 0),   # float?
-            northing = int(item.get('northing') or 0), # float?
-            lat = float(item.get('lat') or 0),
-            long = float(item.get('long') or 0),
+            easting = float(item.get('easting')) if item.get('easting') is not None else None,
+            northing = float(item.get('northing')) if item.get('northing') is not None else None,
+            lat=float(item.get('lat')) if item.get('lat') is not None else None,
+            long=float(item.get('long')) if item.get('long') is not None else None,
             catchment_name = item.get('catchmentName'),
             river_name = item.get('riverName'),
             town = item.get('town'),
@@ -115,9 +116,9 @@ def load_stations_from_json(station_meta_id:int, items) -> int:
         db.session.add(hyd_station)
         db.session.flush()  # So station.id is available
 
-        # ok, this is a little bit "cart before the horse"
+        # OK, this is a little bit "cart before the horse"
         # Save the raw item data row to the "json" table, given the station_id
-        save_station_json(hyd_station.id, item)
+        save_hyd_station_json(hyd_station.id, item)
 
         # Types
         for t in item.get('type', []):
@@ -179,15 +180,6 @@ def load_stations_from_json(station_meta_id:int, items) -> int:
     return count_items  # Return the count for logging
 
 
-def parse_date(val):
-    if val:
-        try:
-            return datetime.strptime(val, '%Y-%m-%d').date()
-        except Exception:
-            return None
-    return None
-
-
 def truncate_all_stations():
     # Truncate *meta - all other tables will cascade delete
     count = db.session.query(HydStation).count()
@@ -202,7 +194,7 @@ def truncate_all_stations():
 
 def save_hyd_station_meta(meta: dict) -> int:
     # Insert meta
-    hyd_station_meta = HydStationMeta(
+    station_meta = HydStationMeta(
         json_id=meta.get('@id'),
         publisher = meta.get('publisher'),
         license = meta.get('license'),
@@ -212,12 +204,12 @@ def save_hyd_station_meta(meta: dict) -> int:
         comment = meta.get('comment'),
         hasFormat = meta.get('hasFormat')
     )
-    db.session.add(hyd_station_meta)
+    db.session.add(station_meta)
     db.session.flush()  # To get hyd_station_meta.id
-    return hyd_station_meta.id
+    return station_meta.id
 
 
-def save_station_json(station_id: int, item):
+def save_hyd_station_json(station_id: int, item):
     # Save full JSON
     station_json = HydStationJson(
         station_id=station_id,
