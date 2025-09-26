@@ -74,7 +74,7 @@ def get_station_labels(worker_id:int=0):
 # for local machine working
 # save_basefolder: str = "data/archive",
 def get_hydrology_readings (datestr: str,
-                            save_basefolder: str = "f:",
+                            save_basefolder: str = "readings_hydrology",
                             force_replace:bool = False
                            ) -> pd.DataFrame|None:
     """
@@ -107,7 +107,9 @@ def get_hydrology_readings (datestr: str,
     '''
 
     url = f'{ea_root_url}/data/readings.csv?_view=full&_limit=1000000&date={datestr}'
-    save_folder = f'{save_basefolder}/hydrology/'
+    # get year from first 4 chars of datestr
+    year = datestr[:4]
+    save_folder = os.path.join(save_basefolder, year)  #2025/09/26 symlink (readings_hydrology) and subdirectories (yyyy) added. save_basefolder is ONLY the symlink (to /mnt/qnap_nfs/hydrology)
     filename = f'hydro-{datestr}.csv'
 
     os.makedirs(save_folder, exist_ok=True)  # Ensure the folder exists
@@ -157,7 +159,8 @@ def get_hydrology_readings_loop(upto:int = 3,
                                 app = None,
                                 force_start_date: datetime.date = None,
                                 force_end_date: datetime.date = None,
-                                force_replace:bool = False
+                                force_replace:bool = False,
+                                force_replace_at_db:bool = False
                                ):
     #import torch
     #logger.info(f"torch version:   {torch.__version__}")
@@ -198,6 +201,49 @@ def get_hydrology_readings_loop(upto:int = 3,
         """Check if a specific date exists in the ReadingHydro table."""
         return db.session.query(exists().where(cast(ReadingHydro.r_date, Date) == d_date)).scalar()
 
+    def delete_for_date(d_date):
+        """
+        Delete all rows from ReadingHydro where the DATE(r_datetime) = d_date.
+        Note: It is much quicker to replace a whole days data than to update/insert from a more recent file
+        Args:
+            d_date (date): The date to delete for.
+        """
+        #logger.info(f"(T):delete_for_date {d_date}:  BEGIN")
+
+        if isinstance(d_date, datetime.datetime):
+            d_date = d_date.date()
+        elif isinstance(d_date, str):
+            d_date = datetime.date.fromisoformat(d_date)
+
+        xstart = datetime.datetime.combine(d_date, datetime.datetime.min.time())
+        xend = xstart + datetime.timedelta(days=1)
+
+        #logger.info(f"(T):{xstart} to {xend}")
+        #count = (
+        #    db.session.query(ReadingHydro)
+        #    .filter(ReadingHydro.r_datetime >= xstart,
+        #            ReadingHydro.r_datetime < xend)
+        #    .count()
+        #)
+        #print(f"Would delete {count} rows")
+
+        ## Begin a transaction
+        #trans = db.session.begin_nested()
+
+        rows_deleted = (
+            db.session.query(ReadingHydro)
+            .filter(ReadingHydro.r_datetime >= xstart,
+                    ReadingHydro.r_datetime < xend)
+            .delete(synchronize_session=False)
+        )
+
+        #logger.info(f"(T):delete_for_date {d_date}:  {rows_deleted} rows")
+        ## Rollback to undo the delete
+        #trans.rollback()
+
+        db.session.commit()
+        return rows_deleted
+
     all_ranges = []
     # Build a list of eligible dates to process
     current = start_date
@@ -225,8 +271,12 @@ def get_hydrology_readings_loop(upto:int = 3,
                 #logger.debug(f"Obtained {len(df)} rows")
 
                 if df is not None:
+                    if force_replace_at_db:
+                        deleted_rows = delete_for_date(datestr)
+                        logger.info(
+                            f"(T{p_worker_id}):Deleted from readings table for {datestr}:  {deleted_rows} rows")
                     logger.info(
-                            f"(T{p_worker_id}):Loading hydrology data for {datestr} - {len(df)} rows")
+                        f"(T{p_worker_id}):Loading hydrology data for {datestr} - {len(df)} rows")
                     t0 = time.perf_counter()
                     # if the date does not exist in the database then it's safe to perform a (much faster) bulk load
                     status_summary, insupd_summary = threaded_insert(
@@ -287,7 +337,7 @@ def get_db_min_max_dates() -> [datetime.date, datetime.date]:
     #logger.debug(f"(hydro) max_r_date : {max_r_date}")
 
     # Total days in the range (inclusive)
-    num_dates = (max_r_date - min_r_date).days  # +1 ???
+    num_dates = (max_r_date - min_r_date).days +1   #???
     #logger.debug(f"(hydro) num_dates : {num_dates}")
 
     # Count unique days present in the DB
@@ -600,6 +650,10 @@ def insert_chunk(chunk_df: pd.DataFrame,
 
 
 def parse_notation(notation):
+    if not notation or not isinstance(notation, str):
+        logger.debug(f"Skipping invalid notation: {notation!r}")
+        return None
+
     parts = notation.rsplit('-', 10)
     n_dashes = len(parts) - 1
     try:

@@ -9,20 +9,24 @@ import shapely.geometry
 import json
 
 # for map coordinate conversions
-from osgeo import ogr
-from osgeo import osr
+#from osgeo import ogr
+#from osgeo import osr
+#from osgeo.osr import CoordinateTransformation
 
 import pandas as pd
 import time
 import math
 
+# Map coordinate conversions refactored using shapely and pyproj
+from shapely.geometry import shape, mapping
+from shapely.ops import transform as shapely_transform
+from pyproj import Transformer
+
 from typing import Dict, List, Any
 
 import logging
 
-from osgeo.osr import CoordinateTransformation
-
-# 🔥 Get the same logger
+# Get the same logger
 logger = logging.getLogger('floodWatch3')
 
 def get_area_colors(all_eaareanames):
@@ -490,32 +494,47 @@ def generate_polygon_html(eaareaname, label, area_colors, polygon_json=None, sim
     return fg, poly_styles
 
 
+#def get_transforms_REDUNDANT():
+#    """Creates objects to translate WGS84 coords to BNG (British National Grid) and vice versa.
+#
+#    Returns: Transformation objects transform_wsg842bng and transform_bng2wsg84
+#    """
+#    logger.debug('>')
+#    # EPSG:4326 is WGS84 projection (degrees)
+#    source = osr.SpatialReference()
+#    source.ImportFromEPSG(4326)
+#
+#    # EPSG:27700 is British National Grid projection (metres from a datum point)
+#    # EPSG:5243 is used by OpenStreetMap (metres from a datum point)
+#    target = osr.SpatialReference()
+#    target.ImportFromEPSG(27700)
+#    # target.ImportFromEPSG(5243)
+#
+#    # Transform coordinates from one projection to another
+#    transform_wsg842bng = osr.CoordinateTransformation(source, target)
+#
+#    # .... and back again
+#    transform_bng2wsg84 = osr.CoordinateTransformation(target, source)
+#    #logger.debug('<')
+#    return transform_wsg842bng, transform_bng2wsg84
+
 def get_transforms():
-    """Creates objects to translate WGS84 coords to BNG (British National Grid) and vice versa.
-
-    Returns: Transformation objects transform_wsg842bng and transform_bng2wsg84
     """
-    logger.debug('>')
-    # EPSG:4326 is WGS84 projection (degrees)
-    source = osr.SpatialReference()
-    source.ImportFromEPSG(4326)
+    Return pyproj Transformers for WGS84 <-> BNG (EPSG:4326 <-> EPSG:27700).
 
-    # EPSG:27700 is British National Grid projection (metres from a datum point)
-    # EPSG:5243 is used by OpenStreetMap (metres from a datum point)
-    target = osr.SpatialReference()
-    target.ImportFromEPSG(27700)
-    # target.ImportFromEPSG(5243)
-
-    # Transform coordinates from one projection to another
-    transform_wsg842bng = osr.CoordinateTransformation(source, target)
-
-    # .... and back again
-    transform_bng2wsg84 = osr.CoordinateTransformation(target, source)
-    #logger.debug('<')
-    return transform_wsg842bng, transform_bng2wsg84
+    Returns
+    -------
+    transform_wgs84_to_bng : pyproj.Transformer
+        Transformer for (lon, lat) WGS84 -> (E, N) British National Grid
+    transform_bng_to_wgs84 : pyproj.Transformer
+        Transformer for (E, N) British National Grid -> (lon, lat) WGS84
+    """
+    transform_wgs84_to_bng = Transformer.from_crs("EPSG:4326", "EPSG:27700", always_xy=True)
+    transform_bng_to_wgs84 = Transformer.from_crs("EPSG:27700", "EPSG:4326", always_xy=True)
+    return transform_wgs84_to_bng, transform_bng_to_wgs84
 
 
-def get_polygon_metrics_row(p_geojson, transform_wsg842planar):
+def get_polygon_metrics_row_REDUNDANT (p_geojson, transform_wsg842planar):
     """
     Purpose : Validate and convert GeoJSON to polygon geometry, compute bounding box and area
     Params  : p_geoJSON (str or dict) GeoJSON of the polygon
@@ -532,71 +551,194 @@ def get_polygon_metrics_row(p_geojson, transform_wsg842planar):
     #transform_wsg842bng, transform_bng2wsg84 = get_transforms()
 
     # Ensure we have a parsed JSON dict
-    if isinstance(p_geojson, str):
-        try:
-            l_geo_json = json.loads(p_geojson)
-        except json.JSONDecodeError as e:
-            print("Invalid GeoJSON string:", e)
-            return None, None
-    elif isinstance(p_geojson, dict):
-        l_geo_json = p_geojson
-    else:
-        print("Invalid input type. Expected GeoJSON str or dict.")
-        return None, None
-
-    try:
+#    if isinstance(p_geojson, str):
+#        try:
+#            l_geo_json = json.loads(p_geojson)
+#        except json.JSONDecodeError as e:
+#            print("Invalid GeoJSON string:", e)
+#            return None, None
+#    elif isinstance(p_geojson, dict):
+#        l_geo_json = p_geojson
+#    else:
+#        print("Invalid input type. Expected GeoJSON str or dict.")
+#        return None, None
+#
+#    try:
         # In web mapping APIs like Google Maps, spatial coordinates are often in order of latitude then longitude.
         # In spatial databases like PostGIS and SQL Server, spatial coordinates are in longitude and then latitude.
 
         # Folium maps use WSG84 grid for positioning, feature plotting, feedback end so on, and all of these have
         # coordinates in (latitude (GetY(), N +ve, S -ve), longitude (GetX(), W -ve, E +ve)).
         # We use that convention throughout this application
-        geometry = l_geo_json['features'][0]['geometry']
-        poly = ogr.CreateGeometryFromJson(json.dumps(geometry))
-
-        envelope_wsg84 = poly.GetEnvelope()  # (minX, maxX, minY, maxY) # This includes all parts of the MultiPolygon
-        min_long, max_long, min_lat, max_lat = envelope_wsg84
-
-        bounding_box_wsg84   = [[min_lat, min_long], [max_lat, max_long]]
-        bound_centre_wgs84   = [round((max_lat + min_lat) / 2, 6), round((max_long + min_long) / 2, 6)]
-        mpoly_centroid_wsg84 = [round(poly.Centroid().GetY(), 6), round(poly.Centroid().GetX(), 6)]
-
-
-        # Transform to BNG (meters) for area and bounding box calculations
-        poly.Transform(transform_wsg842planar)
+#        geometry = l_geo_json['features'][0]['geometry']
+#        poly = ogr.CreateGeometryFromJson(json.dumps(geometry))
+#
+#        envelope_wsg84 = poly.GetEnvelope()  # (minX, maxX, minY, maxY) # This includes all parts of the MultiPolygon
+#        min_long, max_long, min_lat, max_lat = envelope_wsg84
+#
+#        bounding_box_wsg84   = [[min_lat, min_long], [max_lat, max_long]]
+#        bound_centre_wgs84   = [round((max_lat + min_lat) / 2, 6), round((max_long + min_long) / 2, 6)]
+#        mpoly_centroid_wsg84 = [round(poly.Centroid().GetY(), 6), round(poly.Centroid().GetX(), 6)]
+#
+#
+#        # Transform to BNG (meters) for area and bounding box calculations
+#        poly.Transform(transform_wsg842planar)
 
         # Bounding rectangle in bng (for measuring distances in metres)
-        envelope_bng = poly.GetEnvelope()  # (minX, maxX, minY, maxY) # This includes all parts of the MultiPolygon
-        min_x, max_x, min_y, max_y = envelope_bng
-
-        bounding_box_bng   = [[round(min_x,6), round(min_y,6)], [round(max_x,6), round(max_y,6)]]
-        bound_centre_bng   = [round((max_x + min_x) / 2, 6), round((max_y + min_y) / 2, 6)]
-        mpoly_centroid_bng = [round(poly.Centroid().GetX(), 6), round(poly.Centroid().GetY(), 6)]
+#        envelope_bng = poly.GetEnvelope()  # (minX, maxX, minY, maxY) # This includes all parts of the MultiPolygon
+#        min_x, max_x, min_y, max_y = envelope_bng
+#
+#        bounding_box_bng   = [[round(min_x,6), round(min_y,6)], [round(max_x,6), round(max_y,6)]]
+#        bound_centre_bng   = [round((max_x + min_x) / 2, 6), round((max_y + min_y) / 2, 6)]
+#        mpoly_centroid_bng = [round(poly.Centroid().GetX(), 6), round(poly.Centroid().GetY(), 6)]
 
         # Area in square meters
-        if poly.GetGeometryType() == ogr.wkbMultiPolygon:
-            area = sum(poly.GetGeometryRef(i).GetArea() for i in range(poly.GetGeometryCount()))
+#        if poly.GetGeometryType() == ogr.wkbMultiPolygon:
+#            area = sum(poly.GetGeometryRef(i).GetArea() for i in range(poly.GetGeometryCount()))
+#        else:
+#            area = poly.GetArea()
+
+#        row = {
+#            'bounding_box_wsg84':   bounding_box_wsg84,
+#            'bound_centre_wgs84':   bound_centre_wgs84,
+#            'mpoly_centroid_wsg84': mpoly_centroid_wsg84,
+#
+#            'bounding_box_bng':     bounding_box_bng,
+#            'bound_centre_bng':     bound_centre_bng,
+#            'mpoly_centroid_bng':   mpoly_centroid_bng,
+#
+#            'area_km2': area / 1e6,
+#            'area_m2': area
+#        }
+#        #logger.debug('<')
+#        return pd.DataFrame([row])  # single-row DataFrame
+#    except Exception as e:
+#        logging.critical("Error in getPolygonMetricsRow:", e)
+#        #logger.debug('<')
+#        return None, None
+
+
+def get_polygon_metrics_row(p_geojson, geojson_friendly: bool = False) -> pd.DataFrame|None :
+    """
+    Validate and convert GeoJSON to polygon geometry, compute bounding box and area
+
+    Parameters
+    ----------
+    p_geojson : str | dict
+        GeoJSON polygon (FeatureCollection with at least one polygon feature).
+    geojson_friendly : bool
+        If True, return geometries as GeoJSON-like dicts (ready for Folium) instead of raw lists (good for pandas).
+
+    Returns : A single row df with the following columns:
+                bounding_box_wgs84   : [[sw_lat, sw_lon],[ne_lat, ne_lon]]
+                bound_centre_wgs84   : [[bc_lat, bc_lon]]
+                mpoly_centroid_wgs84 : [[centroid_lat, centroid_lon]]
+                bounding_box_bng     : [[sw_x, sw_y],[ne_x, ne_y]]
+                bound_centre_bng     : [[bc_x, bc_y]]
+                mpoly_centroid_bng   : [[centroid_x, centroid_y]]
+                area_m2              : polygon area in square metres
+                area_km2             : polygon area in square kilometres
+    """
+    # Ensure we have a parsed JSON dict
+    if isinstance(p_geojson, str):
+        try:
+            l_geojson = json.loads(p_geojson)
+        except json.JSONDecodeError as e:
+            print("Invalid GeoJSON string:", e)
+            return None
+    elif isinstance(p_geojson, dict):
+        l_geojson = p_geojson
+    else:
+        print("Invalid input type. Expected GeoJSON str or dict.")
+        return None
+
+    try:
+        # Drill down to geometry
+        if l_geojson.get("type") == "FeatureCollection":
+            geom = l_geojson["features"][0]["geometry"]
+        elif l_geojson.get("type") == "Feature":
+            geom = l_geojson["geometry"]
         else:
-            area = poly.GetArea()
+            geom = l_geojson  # assume bare geometry dict
 
+
+        # Shapely polygon in WGS84
+        poly_wgs84 = shape(geom)   # works for Polygon or MultiPolygon
+
+        # Shapely polygon projected to BNG (for area and metric bbox)
+        poly_bng = shapely_transform(transform_wgs842bng.transform, poly_wgs84)
+
+        # --- Areas ---
+        area_m2 = poly_bng.area
+        area_km2 = area_m2 / 1e6
+
+        # --- Bounding boxes ---
+        # WGS84 bounds
+        min_lon, min_lat, max_lon, max_lat = poly_wgs84.bounds
+        centroid_wgs84 = [poly_wgs84.centroid.y, poly_wgs84.centroid.x]
+
+        # BNG bounds
+        min_x, min_y, max_x, max_y = poly_bng.bounds
+        centroid_bng = [poly_bng.centroid.x, poly_bng.centroid.y]
+
+        if geojson_friendly:
+            # Return dicts that Folium/Leaflet understand
+            bounding_box_wgs84 = {
+                "type": "Polygon",
+                "coordinates": [[
+                    [min_lon, min_lat],
+                    [min_lon, max_lat],
+                    [max_lon, max_lat],
+                    [max_lon, min_lat],
+                    [min_lon, min_lat]
+                ]]
+            }
+            bound_centre_wgs84 = {"type": "Point", "coordinates": [centroid_wgs84[1], centroid_wgs84[0]]}
+            centroid_wgs84_val = {"type": "Point", "coordinates": [centroid_wgs84[1], centroid_wgs84[0]]}
+
+            bounding_box_bng = {
+                "type": "Polygon",
+                "coordinates": [[
+                    [min_x, min_y],
+                    [min_x, max_y],
+                    [max_x, max_y],
+                    [max_x, min_y],
+                    [min_x, min_y]
+                ]]
+            }
+            bound_centre_bng = {"type": "Point", "coordinates": [centroid_bng[0], centroid_bng[1]]}
+            centroid_bng_val = {"type": "Point", "coordinates": [centroid_bng[0], centroid_bng[1]]}
+
+        else:
+            # Simple lists (for Pandas)
+            bounding_box_wgs84 = [[min_lat, min_lon], [max_lat, max_lon]]
+            bound_centre_wgs84 = [sum([min_lat, max_lat]) / 2, sum([min_lon, max_lon]) / 2]
+            centroid_wgs84_val = [centroid_wgs84[0], centroid_wgs84[1]]
+
+            bounding_box_bng = [[min_x, min_y], [max_x, max_y]]
+            bound_centre_bng = [sum([min_x, max_x]) / 2, sum([min_y, max_y]) / 2]
+            centroid_bng_val = [centroid_bng[0], centroid_bng[1]]
+
+        # --- Assemble row ---
         row = {
-            'bounding_box_wsg84':   bounding_box_wsg84,
-            'bound_centre_wgs84':   bound_centre_wgs84,
-            'mpoly_centroid_wsg84': mpoly_centroid_wsg84,
-
-            'bounding_box_bng':     bounding_box_bng,
-            'bound_centre_bng':     bound_centre_bng,
-            'mpoly_centroid_bng':   mpoly_centroid_bng,
-
-            'area_km2': area / 1e6,
-            'area_m2': area
+            "bounding_box_wgs84": bounding_box_wgs84,
+            "bound_centre_wgs84": bound_centre_wgs84,
+            "mpoly_centroid_wgs84": centroid_wgs84,
+            "bounding_box_bng": bounding_box_bng,
+            "bound_centre_bng": bound_centre_bng,
+            "mpoly_centroid_bng": centroid_bng,
+            "area_m2": area_m2,
+            "area_km2": area_km2,
         }
-        #logger.debug('<')
+
         return pd.DataFrame([row])  # single-row DataFrame
+
     except Exception as e:
-        logging.critical("Error in getPolygonMetricsRow:", e)
-        #logger.debug('<')
-        return None, None
+        print("Error in get_polygon_metrics_row:", e)
+        #print(f'GeoJSON input : {p_geojson}')
+        print(f'l_geojson type: {type(l_geojson)}')
+        return None
+
 
 
 def add_floodarea_support_cols(df: pd.DataFrame,

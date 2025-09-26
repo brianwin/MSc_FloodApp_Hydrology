@@ -136,7 +136,8 @@ def get_hydrology_data_latest_command(num_days_before_last_reading):
         get_hydrology_readings_loop(app=app,
                                     force_start_date=force_start_date,
                                     force_end_date=force_end_date,
-                                    force_replace=True
+                                    force_replace=True,
+                                    force_replace_at_db=True
                                    )
 
 
