@@ -19,7 +19,9 @@ def get_dsn_kwargs() -> dict:
         "dbname": "watermonitor",
         "user": "wmon",
         "password": "abc123",
-        "host": "192.168.101.12",
+        #"host": "192.168.101.12",
+        #"host": "192.168.101.14",
+        "host": "192.168.101.18",
         "port": 5432,
     }
 

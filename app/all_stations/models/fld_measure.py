@@ -10,8 +10,8 @@ class FldMeasureMeta(db.Model):
     id           = db.Column(db.Integer, primary_key=True, autoincrement=True)
     json_id      = db.Column(db.Text, unique=True)  # maps to "@id"
     publisher    = db.Column(db.Text)
-    licence      = db.Column(db.Text)  # note spelling of licence (only in flood measure)
-    licenceName  = db.Column(db.Text)  # not used
+    license      = db.Column(db.Text)  # note spelling of licence (only in flood measure)
+    licenseName  = db.Column(db.Text)  # not used
     documentation= db.Column(db.Text)
     version      = db.Column(db.Text)
     comment      = db.Column(db.Text)

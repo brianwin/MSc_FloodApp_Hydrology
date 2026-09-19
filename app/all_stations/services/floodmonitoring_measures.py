@@ -103,8 +103,8 @@ def save_fld_measure_meta(meta: dict) -> int:
     measure_meta = FldMeasureMeta(
         json_id=meta.get('@id'),
         publisher = meta.get('publisher'),
-        licence = meta.get('licence'),         # note spelling of licence (only in flood measure)
-        licenceName = meta.get('licenceName'), # not used
+        license = meta.get('licence'),         # note spelling of licence (only in flood measure)
+        licenseName = meta.get('licenceName'), # not used
         documentation = meta.get('documentation'),
         version = meta.get('version'),
         comment = meta.get('comment'),

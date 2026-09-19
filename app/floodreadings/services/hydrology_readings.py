@@ -17,7 +17,7 @@ from collections import Counter
 from flask import current_app
 from sqlalchemy import Date
 from sqlalchemy.orm import scoped_session, sessionmaker
-from sqlalchemy.sql import func, distinct, exists, literal_column
+from sqlalchemy.sql import select, func, distinct, exists, literal_column
 from sqlalchemy.sql.expression import cast
 from sqlalchemy.dialects.postgresql import insert
 #from sqlalchemy import text
@@ -74,7 +74,7 @@ def get_station_labels(worker_id:int=0):
 # for local machine working
 # save_basefolder: str = "data/archive",
 def get_hydrology_readings (datestr: str,
-                            save_basefolder: str = "readings_hydrology",
+                            save_basefolder: str = "readings_hydrology_tn/hydrology",
                             force_replace:bool = False
                            ) -> pd.DataFrame|None:
     """
@@ -84,6 +84,9 @@ def get_hydrology_readings (datestr: str,
     :param force_replace:
     :return:
     """
+    logger.info(f"Processing date: {datestr}")
+    logger.info(f"save_basefolder: {save_basefolder}")
+    logger.info(f"force_replace  : {force_replace}")
 
     '''
     measure = {id}
@@ -114,12 +117,27 @@ def get_hydrology_readings (datestr: str,
 
     os.makedirs(save_folder, exist_ok=True)  # Ensure the folder exists
     filepath = os.path.join(save_folder, filename)
+    logger.info(f"filepath  : {filepath}")
 
     if os.path.exists(filepath):
+        logger.info(f"filepath found")
         if force_replace:
-            os.remove(filepath)
-            logger.info(f"Removed existing file: {filepath}")
+            logger.info(f"force_replace=True, attempting to delete: {filepath}")
+            try:
+                logger.info(f"os.path.isfile({filepath!r}) = {os.path.isfile(filepath)}")
+                os.remove(filepath)
+            except FileNotFoundError:
+                logger.warning(f"File disappeared before delete: {filepath}")
+            except PermissionError as e:
+                logger.error(f"Permission error deleting {filepath}: {e}")
+            except IsADirectoryError as e:
+                logger.error(f"Expected a file but {filepath} is a directory: {e}")
+            except OSError as e:
+                logger.error(f"OS error deleting {filepath}: {e}")
+            else:
+                logger.info(f"Successfully removed existing file: {filepath}")
         else:
+            logger.info("force_replace=False, not deleting existing file here")
             if os.path.getsize(filepath) == 0:
                 logger.warning(f"File exists, but is empty: {filepath}")
                 os.remove(filepath)
@@ -135,21 +153,35 @@ def get_hydrology_readings (datestr: str,
                     return df
 
     # Download if the file doesn't exist after optional deletion
+    t0 = time.perf_counter()
     response = requests.get(url, stream=True, timeout=60)
+    t1 = time.perf_counter()
+
     if response.status_code == 200:
-        logger.info(f'Fetched {url}')
+        logger.info(f'Fetching {url}')
 
         # Save the file to local os
-        with open(filepath, 'wb') as f:   # the file auto-closes when we exit this "with context"
+        nbytes = 0
+        with open(filepath, 'wb', buffering=1024*1024) as f:   # the file auto-closes when we exit this "with context"
             #for chunk in response.iter_content(chunk_size=8192):          # 8k chunk writes
             for chunk in response.iter_content(chunk_size=1024 * 1024):   # 1Mb chunks reduces syscalls and i/o overhead
+                if not chunk:
+                    continue
                 f.write(chunk)
+                nbytes += len(chunk)
+            t2 = time.perf_counter()
         logger.info(f"Saved: {filepath}")
     else:
         logger.warning(f'Response {response.status_code}: Failed to fetch data from {url}')
         return None
 
     df = pd.read_csv(filepath, low_memory=False, dtype=str)
+    t3 = time.perf_counter()
+
+    logger.info(f"GET (headers/conn): {t1 - t0:.3f}s")
+    logger.info(f"WRITE {nbytes / 1e6:.1f} MB: {t2 - t1:.3f}s  -> {(nbytes / 1e6) / (t2 - t1):.1f} MB/s")
+    logger.info(f"read_csv: {t3 - t2:.3f}s")
+    logger.info(f"TOTAL: {t3 - t0:.3f}s, file size on disk: {os.path.getsize(filepath) / 1e6:.1f} MB")
     return df
 
 
@@ -171,12 +203,14 @@ def get_hydrology_readings_loop(upto:int = 3,
         db_start_date, db_end_date = get_db_min_max_dates()
         # If force_start_date is provided, pick the latest of the two
         if force_start_date:
-            start_date = max(db_start_date, force_start_date)
+            #start_date = max(db_start_date, force_start_date)
+            start_date = force_start_date
         else:
             start_date = db_start_date
         # If force_end_date is provided, pick the earliest of the two
         if force_end_date:
-            end_date = min(db_end_date, force_end_date)
+            #end_date = min(db_end_date, force_end_date)
+            end_date = force_end_date
         else:
             end_date = db_end_date
     else:
@@ -199,7 +233,11 @@ def get_hydrology_readings_loop(upto:int = 3,
 
     def date_in_db(d_date) -> bool:
         """Check if a specific date exists in the ReadingHydro table."""
-        return db.session.query(exists().where(cast(ReadingHydro.r_date, Date) == d_date)).scalar()
+        try:
+            date_exists = db.session.query(exists().where(cast(ReadingHydro.r_date, Date) == d_date)).scalar()
+            return date_exists
+        finally:
+            db.session.rollback()
 
     def delete_for_date(d_date):
         """
@@ -266,26 +304,29 @@ def get_hydrology_readings_loop(upto:int = 3,
                 #    return  # Exit cleanly
 
                 datestr = current_date.strftime('%Y-%m-%d')
-                #logger.debug(f"++++ Loading data for {datestr}")
+                date_exists = date_in_db(datestr)
+                logger.debug(f"++++ Loading data for {datestr}")
                 df = get_hydrology_readings(datestr, force_replace=force_replace)
-                #logger.debug(f"Obtained {len(df)} rows")
+                logger.debug(f"Obtained {len(df)} rows")
 
                 if df is not None:
+                    replace_day = False
                     if force_replace_at_db:
                         deleted_rows = delete_for_date(datestr)
                         logger.info(
                             f"(T{p_worker_id}):Deleted from readings table for {datestr}:  {deleted_rows} rows")
+                        replace_day = True
                     logger.info(
                         f"(T{p_worker_id}):Loading hydrology data for {datestr} - {len(df)} rows")
                     t0 = time.perf_counter()
                     # if the date does not exist in the database then it's safe to perform a (much faster) bulk load
                     status_summary, insupd_summary = threaded_insert(
                                                       df,
-                                                      chunk_size=20000, max_workers=32,
+                                                      chunk_size=20000, max_workers=8,  #was 32 (too much WAL bound concurrency)
                                                       ea_datasource=f"hydro-{datestr}",
                                                       app=app,
                                                       worker_id=p_worker_id,
-                                                      bulk_load= not date_in_db(datestr)
+                                                      bulk_load= replace_day or (not date_exists)
                                                      )
                     t1 = time.perf_counter()
                     logger.info(f"(T{p_worker_id}):Status summary for {datestr}: {dict(sorted(status_summary.items()))}")
@@ -316,48 +357,57 @@ def get_hydrology_readings_loop(upto:int = 3,
     logger.info("Completed processing")
 
 
-def get_db_max_datetime() -> datetime.datetime:
-    logger.debug(f"(hydro) Checking readings in db")
-    db.session.remove()
-    # Get max r_datetime in the DB
-    max_r_datetime = db.session.query(func.max(ReadingHydro.r_datetime)).scalar()
-    logger.debug(f"(hydro) Db max_r_datetime : {max_r_datetime}")
-    return max_r_datetime
+#def get_db_max_datetime() -> datetime.datetime:
+#    logger.debug(f"(hydro) Checking readings in db")
+#    db.session.remove()
+#    # Get max r_datetime in the DB
+#    max_r_datetime = db.session.query(func.max(ReadingHydro.r_datetime)).scalar()
+#    logger.debug(f"(hydro) Db max_r_datetime : {max_r_datetime}")
+#    return max_r_datetime
 
+def get_db_min_max_dates(show_missing_days = True) -> tuple[datetime.date, datetime.date]:
+    logger.debug("(hydro) Checking readings in db")
 
-def get_db_min_max_dates() -> [datetime.date, datetime.date]:
-    logger.debug(f"(hydro) Checking readings in db")
-    db.session.remove()
-    # Get min r_date in the DB
-    min_r_date = db.session.query(func.min(ReadingHydro.r_datetime)).scalar().date()
-    #logger.debug(f"(hydro) min_r_date : {min_r_date}")
+    # Get min/max r_date in the DB - utilises timescaledb pruning - speedy
+    stmt1 = select(
+        func.min(ReadingHydro.r_datetime).label("min_dt"),
+        func.max(ReadingHydro.r_datetime).label("max_dt")
+    )
+    with db.engine.connect() as conn:
+        row1 = conn.execute(stmt1).one()
+        #logger.debug(f"(hydro) row 1 done")
 
-    # Get max r_date in the DB
-    max_r_date = db.session.query(func.max(ReadingHydro.r_datetime)).scalar().date()
-    #logger.debug(f"(hydro) max_r_date : {max_r_date}")
+    min_dt = row1.min_dt.date()
+    max_dt = row1.max_dt.date()
+    num_days = (max_dt - min_dt).days + 1
 
-    # Total days in the range (inclusive)
-    num_dates = (max_r_date - min_r_date).days +1   #???
-    #logger.debug(f"(hydro) num_dates : {num_dates}")
+    if show_missing_days:
+        # Get count of unique days present in the DB - scans each timescaledb chunk so a bit long winded - slow for first execution
+        stmt2 = select(
+            func.count(distinct(ReadingHydro.r_date)).label("present_days")
+        )
 
-    # Count unique days present in the DB
-    present_dates = db.session.query(func.count(distinct(func.date(ReadingHydro.r_date)))).scalar()
-    #logger.debug(f"(hydro) present_dates : {present_dates}")
+        with db.engine.connect() as conn:
+            row2 = conn.execute(stmt2).one()
+            #logger.debug(f"(hydro) row 2 done")
 
-    # Calc the number of missing dates
-    missing_dates = num_dates - present_dates
-    #logger.debug(f"(hydro) missing_dates : {missing_dates}")
+        present_days = row2.present_days
+        missing_days = num_days - present_days
 
-    logger.debug(f"(hydro) Db has readings between {min_r_date} and {max_r_date} - {num_dates} days range ({missing_dates} missing)")
-    return [min_r_date, max_r_date]
+        logger.debug(
+            f"(hydro) Db has readings between {min_dt} and {max_dt} "
+            f"- {num_days} days range ({missing_days} missing)"
+        )
+
+    else:
+        logger.debug(f"(hydro) Db has readings between {min_dt} and {max_dt} ")
+    return min_dt, max_dt
 
 
 def get_start_end_dates(upto:int = 7) -> [datetime.date, datetime.date]:
     # logger.debug(f"getting database max_r_date")
     # Step 1: Get max r_date in the DB
-    db.session.remove()
-    #max_r_date = db.session.query(func.max(Reading_Hydro.r_datetime)).scalar()
-    _, max_r_date = get_db_min_max_dates()
+    _, max_r_date = get_db_min_max_dates(show_missing_days=False)
 
     logger.debug(f"(hydro) Database max_r_date : {max_r_date}")
     if not max_r_date:
@@ -407,13 +457,20 @@ def date_to_utc_datetime(d: datetime.date, end_of_day:bool = False) -> datetime.
 
 
 def threaded_insert(df:pd.DataFrame,
-                    chunk_size:int = 500, max_workers:int = 16,
+                    chunk_size:int = 500, max_workers:int = 8,
                     ea_datasource:str = 'EA',
                     app = None, worker_id = 0,
                     bulk_load:bool = False
                    ) -> (int, int):
     logmark = f"(T{worker_id}):f{ea_datasource[-10:].replace('-', '')}"
-    chunks = [df.iloc[i:i + chunk_size] for i in range(0, len(df), chunk_size)]
+
+    #chunks = [df.iloc[i:i + chunk_size] for i in range(0, len(df), chunk_size)]  #replaced 10/02/2026
+    effective_chunk_size = chunk_size
+    if not bulk_load:
+        # Avoid parameter explosion on ON CONFLICT
+        effective_chunk_size = min(chunk_size, 2000)
+    chunks = [df.iloc[i:i + effective_chunk_size] for i in range(0, len(df), effective_chunk_size)]
+
     logger.info(f'{logmark}: {len(chunks)} chunks to be processed ({"bulk load" if bulk_load else "ins/upd"})')
 
     # Save the current app context
@@ -508,6 +565,11 @@ def parse_float_safe(val: str, min_val: float =-9999999.0, max_val:float =999999
             logger.exception(f"Invalid float value: {val}")
             return None, 8      # split: Out-of-range value
 
+def get_session():
+    """Create a new SQLAlchemy session bound to the Flask-SQLAlchemy engine.
+    Must be called within an active Flask application context.
+    """
+    return sessionmaker(bind=db.engine)()
 
 def insert_chunk(chunk_df: pd.DataFrame,
                  chunk_num: int,
@@ -517,7 +579,9 @@ def insert_chunk(chunk_df: pd.DataFrame,
                 ) -> (dict, dict):
     #from . import get_fieldvalue_for_db  # string converter
 
-    session = get_scoped_session()
+    #session = get_scoped_session()
+    session = get_session()
+
     #logger.info(f"Inserting chunk {chunk_num} using scoped session")
     status_counter = Counter()
     insupd_counter = Counter()
@@ -601,6 +665,7 @@ def insert_chunk(chunk_df: pd.DataFrame,
         if bulk_load:
             # Just bulk insert all rows available in the datafile
             session.bulk_insert_mappings(ReadingHydro, readings)  # type: ignore   #Tells type checker: ReadingHydro is a mapped class
+            insupd_counter['inserted'] += len(readings)
         else:
             stmt = insert(ReadingHydro).values(readings)
 
@@ -623,7 +688,7 @@ def insert_chunk(chunk_df: pd.DataFrame,
                 index_elements=['measure', 'r_datetime'],
                 set_=update_dict,
                 where=where_clause
-            ).returning(literal_column('xmax'))   # PostgreSQL special system column
+            )  #.returning(literal_column('xmax'))   # PostgreSQL special system column
 
             #logger.debug(f"Conflict statement: {conflict_stmt}")
             result = session.execute(conflict_stmt)
@@ -643,7 +708,7 @@ def insert_chunk(chunk_df: pd.DataFrame,
         session.rollback()
         logger.exception(f"Chunk {chunk_num}: failed with error: {e}")
     finally:
-        session.remove()
+        session.close()
         #logger.info(f"Chunk {chunk_num} value statuses: {dict(status_counter)}")
         return status_counter, insupd_counter
 

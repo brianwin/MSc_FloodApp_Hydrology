@@ -47,6 +47,9 @@ def create_app(config_class=DevelopmentConfig):
     from app.all_stations import bp as all_stations_bp
     app.register_blueprint(all_stations_bp, url_prefix='/all_stations')
 
+    from app.climatology import bp as climatology_bp
+    app.register_blueprint(climatology_bp, url_prefix='/climatology')
+
     #logger.info('Blueprints imported')
 
     @app.route('/test/')
@@ -73,7 +76,10 @@ def create_app(config_class=DevelopmentConfig):
         get_hydrology_data_command,
         get_hydrology_data_latest_command,
         get_hydrology_data_gaps_command,
-        init_db_command
+        init_db_command,
+        build_climatology_12h_command,
+        build_climatology_12h_baseline_command,
+        build_climatology_12h_baseline_weibull_command
     )
     app.cli.add_command(load_hyd_station_data_command)
     app.cli.add_command(load_hyd_measure_data_command)
@@ -84,6 +90,9 @@ def create_app(config_class=DevelopmentConfig):
     app.cli.add_command(get_hydrology_data_latest_command)
     app.cli.add_command(get_hydrology_data_gaps_command)
     app.cli.add_command(init_db_command)
+    app.cli.add_command(build_climatology_12h_command)
+    app.cli.add_command(build_climatology_12h_baseline_command)
+    app.cli.add_command(build_climatology_12h_baseline_weibull_command)
 
     #logger.info('CLIs registered')
 

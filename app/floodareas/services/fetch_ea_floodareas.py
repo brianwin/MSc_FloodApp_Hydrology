@@ -1,6 +1,6 @@
-# scripts/fetch_ea_floodareas.py
 import pandas as pd
 import requests
+import os
 import json
 
 from sqlalchemy import text
@@ -24,56 +24,151 @@ logger = logging.getLogger('floodWatch3')
 
 ea_root_url = 'http://environment.data.gov.uk/flood-monitoring'
 
-def load_floodarea_data_from_ea(truncate_all=True):
+def load_floodarea_data_from_ea(truncate_all=True, force_replace=False):
     url = f'{ea_root_url}/id/floodAreas?_limit=10000'
-    response = requests.get(url)
-    data = response.json()
-    logger.info(f'Fetched {url}')
-    logger.info(f'Response {response.status_code}')
+    save_folder: str = "readings_hydrology_tn/floodareas"
+    filename = f'floodareas.json'
+
+    os.makedirs(save_folder, exist_ok=True)  # Ensure the folder exists
+    filepath = os.path.join(save_folder, filename)
+    logger.info(f"filepath  : {filepath}")
+
+    if os.path.exists(filepath):
+        logger.info(f"filepath found")
+        if force_replace:
+            logger.info(f"force_replace=True, attempting to delete: {filepath}")
+            try:
+                logger.info(f"os.path.isfile({filepath!r}) = {os.path.isfile(filepath)}")
+                os.remove(filepath)
+            except FileNotFoundError:
+                logger.warning(f"File disappeared before delete: {filepath}")
+            except PermissionError as e:
+                logger.error(f"Permission error deleting {filepath}: {e}")
+            except IsADirectoryError as e:
+                logger.error(f"Expected a file but {filepath} is a directory: {e}")
+            except OSError as e:
+                logger.error(f"OS error deleting {filepath}: {e}")
+            else:
+                logger.info(f"Successfully removed existing file: {filepath}")
+        else:
+            logger.info("force_replace=False, not deleting existing file here")
+            if os.path.getsize(filepath) == 0:
+                logger.warning(f"File exists, but is empty: {filepath}")
+                os.remove(filepath)
+                logger.info(f"Removed existing file: {filepath}")
+            else:
+                try:
+                    with open(filepath, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                    if not data.get('items'):
+                        logger.warning(f"File exists, but has no items: {filepath}")
+                        os.remove(filepath)
+                        logger.info(f"Removed existing file: {filepath}")
+                    else:
+                        logger.info(f"Using existing local file: {filepath}")
+                        # Process from cached file
+                        if truncate_all:
+                            truncate_all_floodareas()
+                        _process_floodarea_data(data)
+                        return data
+                except (json.JSONDecodeError, KeyError) as e:
+                    logger.warning(f"Cached file is corrupt, removing: {filepath} ({e})")
+                    os.remove(filepath)
+
+    # Download if the file doesn't exist after optional deletion
+    t0 = time.perf_counter()
+    response = requests.get(url, timeout=60)
+    t1 = time.perf_counter()
+
+    if response.status_code == 200:
+        logger.info(f'Fetching {url}')
+        logger.info(f'Response {response.status_code}')
+
+        data = response.json()
+
+        # Save the JSON file to local os
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False)
+        t2 = time.perf_counter()
+        nbytes = os.path.getsize(filepath)
+        logger.info(f"Saved: {filepath}")
+    else:
+        logger.warning(f'Response {response.status_code}: Failed to fetch data from {url}')
+        return None
+
+    t3 = time.perf_counter()
+
+    logger.info(f"GET (headers/conn): {t1 - t0:.3f}s")
+    logger.info(f"WRITE {nbytes / 1e6:.1f} MB: {t2 - t1:.3f}s  -> {(nbytes / 1e6) / (t2 - t1):.1f} MB/s")
+    logger.info(f"TOTAL: {t3 - t0:.3f}s, file size on disk: {nbytes / 1e6:.1f} MB")
 
     if truncate_all:
         truncate_all_floodareas()
+    _process_floodarea_data(data)
 
-    with db.session.begin():
-        # save the "meta" table contents
-        floodarea_meta_id = save_floodarea_meta(data.get('@context'), data['meta'])
 
-        count_items = 0
-        start_time = time.time()
-        for floodarea in data['items']:
-            count_items += 1
-            if count_items % 500 == 0:
-                logger.info(f'Fetched {count_items} floodareas - elapsed= {int(time.time() - start_time)} seconds')
+def _process_floodarea_data(data):
+    """Process the parsed JSON flood area data and save to database."""
+    # save the "meta" table contents
+    floodarea_meta_id = save_floodarea_meta(data.get('@context'), data['meta'])
+    logger.info(f"meta data saved with floodarea_meta_id = {floodarea_meta_id}")
 
-            # save the raw item data row to the "json" table
-            floodarea_id = save_floodarea_json(floodarea_meta_id, floodarea)
-            geom4326, geom27700 = get_geoms(floodarea.get('lat'), floodarea.get('long'))
+    count_items = 0
+    start_time = time.time()
+    for floodarea in data['items']:
+        count_items += 1
+        if count_items % 500 == 0:
+            logger.info(f'Fetched {count_items} floodareas - elapsed= {int(time.time() - start_time)} seconds')
 
-            save_floodarea = Floodarea(
-                floodarea_id = floodarea_id,
-                EnvAgy_id = floodarea.get('@id', '').replace(ea_root_url, '{root}'),
-                county = floodarea.get('county'),
-                description = floodarea.get('description'),
-                eaAreaName = floodarea.get('eaAreaName'),
-                eaRegionName = floodarea.get('eaRegionName'),
-                floodWatchArea = floodarea.get('floodWatchArea'),
-                fwdCode = floodarea.get('fwdCode'),
-                label = floodarea.get('label'),
-                lat=float(floodarea.get('lat') or 0),
-                long=float(floodarea.get('long') or 0),
-                notation = floodarea.get('notation'),
-                polygon = (floodarea.get('polygon') or '').replace(ea_root_url, '{root}'),
-                quickDialNumber = floodarea.get('quickDialNumber'),
-                riverOrSea = floodarea.get('riverOrSea'),
-                geom4326 = geom4326,
-                geom27700 = geom27700
-            )
-            db.session.add(save_floodarea)
+        # save the raw item data row to the "json" table
+        floodarea_json_id = save_floodarea_json(floodarea_meta_id, floodarea)
+        geom4326, geom27700 = get_geoms(floodarea.get('lat'), floodarea.get('long'))
 
-            url = floodarea.get('polygon')
-            response = requests.get(url)
-            poly = response.json()
+        save_floodarea = Floodarea(
+            # Remove explicit floodarea_id assignment to let DB handle it
+            EnvAgy_id = floodarea.get('@id', '').replace(ea_root_url, '{root}'),
+            county = floodarea.get('county'),
+            description = floodarea.get('description'),
+            eaAreaName = floodarea.get('eaAreaName'),
+            eaRegionName = floodarea.get('eaRegionName'),
+            floodWatchArea = floodarea.get('floodWatchArea'),
+            fwdCode = floodarea.get('fwdCode'),
+            label = floodarea.get('label'),
+            lat=float(floodarea.get('lat') or 0),
+            long=float(floodarea.get('long') or 0),
+            notation = floodarea.get('notation'),
+            polygon = (floodarea.get('polygon') or '').replace(ea_root_url, '{root}'),
+            quickDialNumber = floodarea.get('quickDialNumber'),
+            riverOrSea = floodarea.get('riverOrSea'),
+            geom4326 = geom4326,
+            geom27700 = geom27700
+        )
+        db.session.add(save_floodarea)
+        db.session.flush() # Get the generated ID for save_floodarea
+        floodarea_id = save_floodarea.floodarea_id
+
+        url = floodarea.get('polygon')
+        if url and count_items >4100 :
+            try:
+                poly_response = requests.get(url, timeout=30)
+                logger.warning(f"        fetch polygon data for {url} - Status: {poly_response.status_code}")
+            except requests.exceptions.RequestException as e:
+                logger.warning(f"Request failed for polygon {url}: {e}")
+                continue
+
+            if poly_response.status_code != 200 or not poly_response.content:
+                logger.warning(f"Could not fetch polygon data for {url} - Status: {poly_response.status_code}")
+                continue
+
+            try:
+                poly = poly_response.json()
+            except requests.exceptions.JSONDecodeError:
+                logger.warning(f"Failed to decode JSON from {url}")
+                continue
+
             poly = validate_polygon_json (poly)
+            if not poly:
+                continue
 
             geometry = poly['features'][0]['geometry']
             poly_geom = shape(geometry)  # Shapely geometry (Polygon or MultiPolygon)
@@ -95,8 +190,9 @@ def load_floodarea_data_from_ea(truncate_all=True):
             #logger.info(poly)
 
             save_metrics = create_save_metrics_row(floodarea_id, save_floodarea.fwdCode, poly)
-            #logger.info(save_metrics.floodarea_id )
-            db.session.add(save_metrics)
+            if save_metrics:
+                #logger.info(save_metrics.floodarea_id )
+                db.session.add(save_metrics)
 
     db.session.commit()
     floodarea_count = db.session.query(Floodarea).count()
@@ -108,14 +204,22 @@ def load_floodarea_data_from_ea(truncate_all=True):
 
 def truncate_all_floodareas():
     # Truncate *meta - all other tables will cascade delete
-    count = db.session.query(Floodarea).count()
-    logger.info(f'floodareas - row count: {count}')
-    db.session.execute (text('TRUNCATE TABLE ea_source.floodarea_meta CASCADE'))
+    count_before = db.session.query(Floodarea).count()
+    logger.info(f'floodareas - row count before truncate: {count_before}')
+    
+    # RESTART IDENTITY resets the sequences for the truncated tables
+    db.session.execute(text('TRUNCATE TABLE ea_source.floodarea_meta RESTART IDENTITY CASCADE'))
+    logger.info(f'floodarea_meta truncated (and seq reset)')
+    # Also truncate the production table if it's not being caught by the cascade
+    db.session.execute(text('TRUNCATE TABLE production.floodarea RESTART IDENTITY CASCADE'))
+    logger.info(f'floodarea main table truncated (and seq reset)')
+
     db.session.commit()
-    logger.info(f'ea_source.floodarea_meta truncated (cascade)')
-    count = db.session.query(Floodarea).count()
-    db.session.commit()
-    logger.info(f'floodareas - row count: {count}')
+    db.session.expire_all()
+    
+    #logger.info(f'ea_source.floodarea_meta and production.floodarea truncated and sequences reset')
+    count_after = db.session.query(Floodarea).count()
+    logger.info(f'floodareas - row count after truncate: {count_after}')
 
 
 def save_floodarea_meta(context: str, meta: dict) -> int:
@@ -141,7 +245,6 @@ def save_floodarea_json(floodarea_meta_id: int, floodarea: dict) -> int:
             floodarea_data=floodarea
         )
         db.session.add(floodarea_json)
-        db.session.flush()
         return floodarea_json.floodarea_id
 
 
