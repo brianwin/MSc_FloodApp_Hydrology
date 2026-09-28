@@ -31,6 +31,12 @@ from dateutil.parser import parse
 from app import db
 from ..models import ReadingHydro
 from app.all_stations.models import HydStation   # to get station labels - just a nice to have
+from .hydrology_load_audit import (
+    capture_daily_profile,
+    create_load_run,
+    finish_load_run,
+    get_daily_row_count,
+)
 
 import logging
 logger = logging.getLogger('floodWatch3')
@@ -295,8 +301,24 @@ def get_hydrology_readings_loop(upto:int = 3,
         all_ranges.append((current, chunk_end))
         current = chunk_end + datetime.timedelta(days=1)
 
+    requested_dates = sum((range_end - range_start).days + 1 for range_start, range_end in all_ranges)
+    command = "hydrology-gaps" if gaps_only else (
+        "hydrology-replace" if force_replace_at_db else "hydrology-load"
+    )
+    load_run_id = create_load_run(
+        command=command,
+        start_date=start_date,
+        end_date=end_date,
+        requested_dates=requested_dates,
+        gaps_only=gaps_only,
+        force_replace_file=force_replace,
+        force_replace_db=force_replace_at_db,
+    )
+
     def worker(p_start_date, p_end_date, p_worker_id, xapp=None):
         with (xapp.app_context()):
+            completed_dates = []
+            failed_dates = []
             current_date = p_start_date
             while current_date <= p_end_date:
                 #if stop_event.is_set():
@@ -304,12 +326,18 @@ def get_hydrology_readings_loop(upto:int = 3,
                 #    return  # Exit cleanly
 
                 datestr = current_date.strftime('%Y-%m-%d')
-                date_exists = date_in_db(datestr)
-                logger.debug(f"++++ Loading data for {datestr}")
-                df = get_hydrology_readings(datestr, force_replace=force_replace)
-                logger.debug(f"Obtained {len(df)} rows")
+                before_row_count = get_daily_row_count(current_date)
+                source_row_count = None
+                deleted_rows = 0
+                try:
+                    date_exists = before_row_count > 0
+                    logger.debug(f"++++ Loading data for {datestr}")
+                    df = get_hydrology_readings(datestr, force_replace=force_replace)
+                    if df is None:
+                        raise RuntimeError(f"No hydrology source data available for {datestr}")
+                    source_row_count = len(df)
+                    logger.debug(f"Obtained {source_row_count} rows")
 
-                if df is not None:
                     replace_day = False
                     if force_replace_at_db:
                         deleted_rows = delete_for_date(datestr)
@@ -332,29 +360,89 @@ def get_hydrology_readings_loop(upto:int = 3,
                     logger.info(f"(T{p_worker_id}):Status summary for {datestr}: {dict(sorted(status_summary.items()))}")
                     logger.info(f"(T{p_worker_id}):Action summary for {datestr}: {dict(sorted(insupd_summary.items()))}")
                     logger.info(f"(T{p_worker_id}):Process time   for {datestr}: {(t1 - t0):.1f}s - {int(len(df) / (t1 - t0))} rows/sec")
-                    # logger.debug('Test load only')
-                else:
-                    logger.warning(
-                        f"(T{p_worker_id}):No hydrology data available for {datestr}")
+                    capture_daily_profile(
+                        r_date=current_date,
+                        load_run_id=load_run_id,
+                        before_row_count=before_row_count,
+                        source_row_count=source_row_count,
+                        rows_deleted=deleted_rows,
+                        rows_inserted=insupd_summary.get("inserted", 0),
+                        rows_updated=insupd_summary.get("updated", 0),
+                        rows_affected=insupd_summary.get("affected", 0),
+                    )
+                    completed_dates.append(current_date)
+                except Exception as exc:
+                    logger.exception(f"(T{p_worker_id}):Hydrology load failed for {datestr}")
+                    db.session.rollback()
+                    try:
+                        capture_daily_profile(
+                            r_date=current_date,
+                            load_run_id=load_run_id,
+                            status="failed",
+                            before_row_count=before_row_count,
+                            source_row_count=source_row_count,
+                            rows_deleted=deleted_rows,
+                            error_message=str(exc)[:4000],
+                        )
+                    except Exception:
+                        db.session.rollback()
+                        logger.exception(f"(T{p_worker_id}):Could not record failure profile for {datestr}")
+                    failed_dates.append((current_date, str(exc)))
                 current_date += datetime.timedelta(days=1)
+            return completed_dates, failed_dates
 
 
     # Start listener in background
     #listener = keyboard.Listener(on_press=on_press)
     #listener.start()
 
-    if len(all_ranges) > 0:
-        logger.info(f"Kicking off {len(all_ranges)} parallel tasks")
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            for worker_id, (start, end) in enumerate(all_ranges):
+    completed_dates = []
+    failed_dates = []
+    try:
+        if len(all_ranges) > 0:
+            logger.info(f"Kicking off {len(all_ranges)} parallel tasks")
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = []
+                for worker_id, (start, end) in enumerate(all_ranges):
                 #print ('True' if stop_event.is_set() else 'False')
                 #if stop_event.is_set():
                 #    logger.warning("User requested stop — no more tasks will be submitted.")
                 #    break  # stop submitting new tasks
-                executor.submit(worker, start, end, worker_id, xapp=app)
+                    futures.append(executor.submit(worker, start, end, worker_id, xapp=app))
                 #time.sleep(0.2)  #TEMP: allows time for 'q' to be detected
+                for future in futures:
+                    worker_completed, worker_failed = future.result()
+                    completed_dates.extend(worker_completed)
+                    failed_dates.extend(worker_failed)
+        status = "succeeded" if not failed_dates else (
+            "partial" if completed_dates else "failed"
+        )
+        errors = "; ".join(f"{date}: {message}" for date, message in failed_dates)
+        finish_load_run(
+            load_run_id,
+            status=status,
+            completed_dates=len(completed_dates),
+            failed_dates=len(failed_dates),
+            error_message=errors[:4000] or None,
+        )
+        if failed_dates:
+            raise RuntimeError(
+                f"Hydrology load run {load_run_id} failed for {len(failed_dates)} date(s)"
+            )
+    except Exception as exc:
+        db.session.rollback()
+        if not failed_dates:
+            finish_load_run(
+                load_run_id,
+                status="failed",
+                completed_dates=len(completed_dates),
+                failed_dates=max(1, requested_dates - len(completed_dates)),
+                error_message=str(exc)[:4000],
+            )
+        raise
     #listener.stop()
-    logger.info("Completed processing")
+    logger.info(f"Completed processing (audit run {load_run_id})")
+    return load_run_id
 
 
 #def get_db_max_datetime() -> datetime.datetime:
@@ -666,6 +754,7 @@ def insert_chunk(chunk_df: pd.DataFrame,
             # Just bulk insert all rows available in the datafile
             session.bulk_insert_mappings(ReadingHydro, readings)  # type: ignore   #Tells type checker: ReadingHydro is a mapped class
             insupd_counter['inserted'] += len(readings)
+            insupd_counter['affected'] += len(readings)
         else:
             stmt = insert(ReadingHydro).values(readings)
 
@@ -693,12 +782,10 @@ def insert_chunk(chunk_df: pd.DataFrame,
             #logger.debug(f"Conflict statement: {conflict_stmt}")
             result = session.execute(conflict_stmt)
 
-            # Counts
-            rows = result.fetchall()
-            # Note: row.xmax is not a reliable way to distinguish between insert and update from an upsert statement
-            insupd_counter['inserted'] = sum(1 for row in rows if row.xmax == 0)  # Inserted rows
-            insupd_counter['updated']  = sum(1 for row in rows if row.xmax != 0)  # Updated rows
-            #logger.debug(f"Chunk {chunk_num}: Inserted rows: {insupd_counter['inserted']}, Updated rows: {insupd_counter['updated']}")
+            # PostgreSQL reports the total number inserted or materially updated.
+            # It cannot reliably split INSERT from UPDATE without additional
+            # per-row bookkeeping, so retain the honest aggregate instead.
+            insupd_counter['affected'] += result.rowcount
 
         session.commit()
         #t1 = time.perf_counter()
@@ -707,10 +794,10 @@ def insert_chunk(chunk_df: pd.DataFrame,
     except Exception as e:
         session.rollback()
         logger.exception(f"Chunk {chunk_num}: failed with error: {e}")
+        raise
     finally:
         session.close()
-        #logger.info(f"Chunk {chunk_num} value statuses: {dict(status_counter)}")
-        return status_counter, insupd_counter
+    return status_counter, insupd_counter
 
 
 

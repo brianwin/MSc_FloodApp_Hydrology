@@ -1,0 +1,97 @@
+# Hydrology load monitoring
+
+The hydrology loaders append an audit row for every invocation and a daily
+profile for every date they process. The profile records row, station and
+measure counts before and after loading, along with failures and affected-row
+counts.
+
+## Install the audit tables
+
+After deploying this branch, run the existing Flask schema command once:
+
+```bash
+flask init-db
+```
+
+`init-db` only creates missing tables; it does not drop or empty existing
+tables.
+
+## Capture the initial baseline
+
+Before deleting or reloading historical days, capture the current state:
+
+```bash
+flask profile-hydrology-readings
+```
+
+An optional inclusive date range can reduce the initial scan:
+
+```bash
+flask profile-hydrology-readings \
+  --start-date 2026-01-01 \
+  --end-date 2026-09-28
+```
+
+The normal hydrology load, latest and gaps commands then create profiles
+automatically.
+
+## Useful Grafana PostgreSQL queries
+
+Daily row counts (latest profile for each reading date):
+
+```sql
+SELECT DISTINCT ON (r_date)
+       r_date AS "time",
+       after_row_count AS rows,
+       station_count AS stations,
+       measure_count AS measures
+FROM production.hydrology_daily_profile
+WHERE status = 'succeeded'
+  AND $__timeFilter(r_date)
+ORDER BY r_date, recorded_at DESC, id DESC;
+```
+
+Daily row count as a percentage of the preceding 28-day average:
+
+```sql
+WITH latest AS (
+    SELECT DISTINCT ON (r_date)
+           r_date, recorded_at, after_row_count
+    FROM production.hydrology_daily_profile
+    WHERE status = 'succeeded'
+    ORDER BY r_date, recorded_at DESC, id DESC
+), scored AS (
+    SELECT r_date,
+           after_row_count,
+           avg(after_row_count) OVER (
+               ORDER BY r_date
+               ROWS BETWEEN 28 PRECEDING AND 1 PRECEDING
+           ) AS previous_28_day_average
+    FROM latest
+)
+SELECT r_date AS "time",
+       100.0 * after_row_count / NULLIF(previous_28_day_average, 0) AS value
+FROM scored
+WHERE $__timeFilter(r_date)
+ORDER BY r_date;
+```
+
+A practical first alert is `value < 80` for two consecutive evaluations. Tune
+that threshold after observing the normal weekday, seasonal and outage-related
+variation in the graph.
+
+Recent failed or partial loader runs:
+
+```sql
+SELECT started_at AS "time",
+       command,
+       status,
+       requested_dates,
+       completed_dates,
+       failed_dates,
+       error_message
+FROM production.hydrology_load_run
+WHERE status IN ('failed', 'partial')
+  AND $__timeFilter(started_at)
+ORDER BY started_at DESC;
+```

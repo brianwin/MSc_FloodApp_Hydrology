@@ -5,7 +5,7 @@ from app.extensions import db
 from app.utils.logger import setup_logging
 from config import DevelopmentConfig, ProductionConfig
 from .floodareas.models import Floodarea
-from .floodreadings.models import ReadingHydro
+from .floodreadings.models import ReadingHydro, HydrologyDailyProfile, HydrologyLoadRun
 from .all_stations.models import HydStation
 
 from .utils.logger import stop_logging
@@ -76,6 +76,7 @@ def create_app(config_class=DevelopmentConfig):
         get_hydrology_data_command,
         get_hydrology_data_latest_command,
         get_hydrology_data_gaps_command,
+        profile_hydrology_readings_command,
         init_db_command,
         build_climatology_12h_command,
         build_climatology_12h_baseline_command,
@@ -89,6 +90,7 @@ def create_app(config_class=DevelopmentConfig):
     app.cli.add_command(get_hydrology_data_command)
     app.cli.add_command(get_hydrology_data_latest_command)
     app.cli.add_command(get_hydrology_data_gaps_command)
+    app.cli.add_command(profile_hydrology_readings_command)
     app.cli.add_command(init_db_command)
     app.cli.add_command(build_climatology_12h_command)
     app.cli.add_command(build_climatology_12h_baseline_command)
@@ -110,4 +112,3 @@ def create_app(config_class=DevelopmentConfig):
         stop_logging()
 
     return app
-
