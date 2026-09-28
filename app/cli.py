@@ -8,7 +8,7 @@ import datetime
 from .all_stations.services import load_hyd_station_data_from_ea, load_hyd_measure_data_from_ea
 from .all_stations.services import load_fld_station_data_from_ea, load_fld_measure_data_from_ea
 from .floodareas.services import load_floodarea_data_from_ea
-from .floodreadings.services import get_hydrology_readings_loop
+from .floodreadings.services import get_hydrology_readings_loop, capture_historical_baseline
 from .floodreadings.models import ReadingHydro
 from .climatology.services import run_climatology_range, run_climatology_baseline, run_climatology_baseline_weibull
 
@@ -169,6 +169,20 @@ def get_hydrology_data_gaps_command(gaps_only, force_start_date, force_end_date,
                                     force_end_date  =force_end_date.date() if force_end_date  is not None else None,
                                     force_replace=force_replace
                                    )
+
+
+@click.command("profile-hydrology-readings")
+@click.option("--start-date", type=click.DateTime(formats=["%Y-%m-%d"]))
+@click.option("--end-date", type=click.DateTime(formats=["%Y-%m-%d"]))
+@with_appcontext
+def profile_hydrology_readings_command(start_date, end_date):
+    """Append a daily row/station/measure baseline for Grafana and auditing."""
+    start_date = start_date.date() if start_date else None
+    end_date = end_date.date() if end_date else None
+    if start_date and end_date and end_date < start_date:
+        raise click.BadParameter("end-date must not be earlier than start-date")
+    run_id, date_count = capture_historical_baseline(start_date, end_date)
+    click.echo(f"Captured {date_count} daily profiles in load run {run_id}.")
 
 
 def run_climatology_with_context(app, start_date, end_date, worker_id):
