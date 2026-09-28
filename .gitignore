@@ -19,6 +19,7 @@ instance/
 
 # Logs
 *.log
+*.log.*
 floodWatch.log.*
 
 # Archived data
@@ -38,6 +39,10 @@ venv/
 env/
 .venv/
 .floodWatchenv/  # <-- your custom venv folder, if applicable
+
+# Local hydrology data directories/links
+/readings_hydrology
+/readings_hydrology_tn
 
 # Pip & build
 *.egg
