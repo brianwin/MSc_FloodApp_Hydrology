@@ -124,3 +124,32 @@ FROM production.hydrology_daily_profile
 WHERE r_date = DATE '2025-09-01'
 ORDER BY recorded_at DESC, id DESC;
 ```
+
+
+## Backfill checksums for existing source files
+
+After adding the database column, existing local daily CSV files can be hashed
+without downloading them again or changing `production.reading_hydro`:
+
+```bash
+flask backfill-hydrology-source-checksums
+```
+
+Use an inclusive range for a small test or a bounded backfill:
+
+```bash
+flask backfill-hydrology-source-checksums \
+  --start-date 2025-09-01 \
+  --end-date 2025-09-03
+```
+
+The default source root is
+`readings_hydrology_tn/hydrology`; override it with `--source-root` when
+needed. The command appends `checksum_backfill` profiles, copies the latest
+successful database statistics for each date, counts rows in the current CSV,
+and records its SHA-256 digest. It skips a file when the latest successful
+profile already contains the same checksum.
+
+Files without a prior successful database profile are reported and skipped.
+This prevents a checksum-only record with null database counts from becoming
+the latest Grafana datapoint.
