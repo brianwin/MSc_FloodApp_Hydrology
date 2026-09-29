@@ -5,7 +5,10 @@
 
 import requests
 import os
+import csv
 import hashlib
+import re
+from pathlib import Path
 
 import pandas as pd
 import math
@@ -30,7 +33,7 @@ import datetime
 from dateutil.parser import parse
 
 from app import db
-from ..models import ReadingHydro
+from ..models import HydrologyDailyProfile, ReadingHydro
 from app.all_stations.models import HydStation   # to get station labels - just a nice to have
 from .hydrology_load_audit import (
     capture_daily_profile,
@@ -93,6 +96,140 @@ def attach_source_checksum(df: pd.DataFrame, filepath: str) -> pd.DataFrame:
     df.attrs["source_sha256"] = source_sha256
     logger.info(f"Source SHA-256: {source_sha256}")
     return df
+
+
+_SOURCE_FILE_PATTERN = re.compile(r"^hydro-(\d{4}-\d{2}-\d{2})\.csv$")
+
+
+def _count_csv_data_rows(filepath: Path) -> int:
+    """Count logical CSV records, excluding the header, without loading the file."""
+    with filepath.open("r", encoding="utf-8-sig", newline="") as source_file:
+        reader = csv.reader(source_file)
+        next(reader, None)
+        return sum(1 for _ in reader)
+
+
+def backfill_hydrology_source_checksums(
+    source_root="readings_hydrology_tn/hydrology",
+    start_date=None,
+    end_date=None,
+):
+    """Append checksum_backfill profiles for existing daily source CSV files.
+
+    This operation reads local files only. It does not download source data or
+    change production.reading_hydro.
+    """
+    source_root = Path(source_root)
+    if not source_root.is_dir():
+        raise FileNotFoundError(f"Hydrology source directory not found: {source_root}")
+
+    candidates = []
+    invalid_files = []
+    for filepath in sorted(source_root.rglob("hydro-*.csv")):
+        match = _SOURCE_FILE_PATTERN.fullmatch(filepath.name)
+        if not match:
+            invalid_files.append(str(filepath))
+            continue
+        try:
+            r_date = datetime.date.fromisoformat(match.group(1))
+        except ValueError:
+            invalid_files.append(str(filepath))
+            continue
+        if start_date and r_date < start_date:
+            continue
+        if end_date and r_date > end_date:
+            continue
+        candidates.append((r_date, filepath))
+
+    effective_start = candidates[0][0] if candidates else start_date
+    effective_end = candidates[-1][0] if candidates else end_date
+    run_id = create_load_run(
+        command="backfill-hydrology-source-checksums",
+        start_date=effective_start,
+        end_date=effective_end,
+        requested_dates=len(candidates),
+    )
+
+    created = 0
+    unchanged = 0
+    missing_profile = 0
+    failed = 0
+    errors = []
+
+    for r_date, filepath in candidates:
+        try:
+            source_sha256 = calculate_file_sha256(str(filepath))
+            latest_profile = (
+                db.session.query(HydrologyDailyProfile)
+                .filter(
+                    HydrologyDailyProfile.r_date == r_date,
+                    HydrologyDailyProfile.status == "succeeded",
+                    HydrologyDailyProfile.after_row_count.isnot(None),
+                )
+                .order_by(
+                    HydrologyDailyProfile.recorded_at.desc(),
+                    HydrologyDailyProfile.id.desc(),
+                )
+                .first()
+            )
+
+            if latest_profile is None:
+                missing_profile += 1
+                errors.append(f"{r_date}: no successful database profile")
+                logger.warning(
+                    f"Skipping checksum backfill for {r_date}: "
+                    "no successful database profile"
+                )
+                continue
+
+            if latest_profile.source_sha256 == source_sha256:
+                unchanged += 1
+                continue
+
+            profile = HydrologyDailyProfile(
+                load_run_id=run_id,
+                profile_kind="checksum_backfill",
+                r_date=r_date,
+                status="succeeded",
+                before_row_count=latest_profile.after_row_count,
+                source_row_count=_count_csv_data_rows(filepath),
+                source_sha256=source_sha256,
+                after_row_count=latest_profile.after_row_count,
+                station_count=latest_profile.station_count,
+                measure_count=latest_profile.measure_count,
+                first_reading_at=latest_profile.first_reading_at,
+                last_reading_at=latest_profile.last_reading_at,
+            )
+            db.session.add(profile)
+            db.session.commit()
+            created += 1
+        except Exception as exc:
+            db.session.rollback()
+            failed += 1
+            errors.append(f"{r_date}: {exc}")
+            logger.exception(f"Checksum backfill failed for {filepath}")
+
+    completed = created + unchanged
+    unsuccessful = missing_profile + failed
+    status = "succeeded" if unsuccessful == 0 else (
+        "partial" if completed else "failed"
+    )
+    finish_load_run(
+        run_id,
+        status=status,
+        completed_dates=completed,
+        failed_dates=unsuccessful,
+        error_message="; ".join(errors)[:4000] or None,
+    )
+
+    return run_id, {
+        "files_found": len(candidates),
+        "profiles_created": created,
+        "unchanged": unchanged,
+        "missing_profile": missing_profile,
+        "failed": failed,
+        "invalid_files": len(invalid_files),
+    }
 
 
 # for local machine working
