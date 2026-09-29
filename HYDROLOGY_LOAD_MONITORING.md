@@ -2,8 +2,8 @@
 
 The hydrology loaders append an audit row for every invocation and a daily
 profile for every date they process. The profile records row, station and
-measure counts before and after loading, along with failures and affected-row
-counts.
+measure counts before and after loading, the SHA-256 checksum of the exact
+source CSV, along with failures and affected-row counts.
 
 ## Install the audit tables
 
@@ -14,7 +14,15 @@ flask init-db
 ```
 
 `init-db` only creates missing tables; it does not drop or empty existing
-tables.
+tables. SQLAlchemy's `create_all` does not add columns to an existing table,
+so upgrade an existing monitoring installation once with:
+
+```sql
+ALTER TABLE production.hydrology_daily_profile
+    ADD COLUMN IF NOT EXISTS source_sha256 CHAR(64);
+```
+
+New installations receive the column from the model and DDL automatically.
 
 ## Capture the initial baseline
 
@@ -94,4 +102,25 @@ FROM production.hydrology_load_run
 WHERE status IN ('failed', 'partial')
   AND $__timeFilter(started_at)
 ORDER BY started_at DESC;
+```
+
+
+## Source-file checksums
+
+Every successfully read local or downloaded daily CSV is hashed with SHA-256.
+The digest is stored in `production.hydrology_daily_profile.source_sha256`.
+This change records provenance only; it does not yet skip imports or change
+replacement behaviour.
+
+Compare successive versions of a date with:
+
+```sql
+SELECT r_date,
+       recorded_at,
+       status,
+       source_row_count,
+       source_sha256
+FROM production.hydrology_daily_profile
+WHERE r_date = DATE '2025-09-01'
+ORDER BY recorded_at DESC, id DESC;
 ```
