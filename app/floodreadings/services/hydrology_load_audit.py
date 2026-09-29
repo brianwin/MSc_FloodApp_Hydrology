@@ -61,8 +61,9 @@ def _daily_statistics(r_date):
 
 def capture_daily_profile(
     *, r_date, load_run_id=None, profile_kind="post_load", status="succeeded",
-    before_row_count=None, source_row_count=None, rows_deleted=0,
-    rows_inserted=0, rows_updated=0, rows_affected=0, error_message=None
+    before_row_count=None, source_row_count=None, source_sha256=None,
+    rows_deleted=0, rows_inserted=0, rows_updated=0, rows_affected=0,
+    error_message=None
 ):
     stats = _daily_statistics(r_date)
     profile = HydrologyDailyProfile(
@@ -72,6 +73,7 @@ def capture_daily_profile(
         status=status,
         before_row_count=before_row_count,
         source_row_count=source_row_count,
+        source_sha256=source_sha256,
         after_row_count=stats.row_count,
         station_count=stats.station_count,
         measure_count=stats.measure_count,
