@@ -234,116 +234,134 @@ def backfill_hydrology_source_checksums(
 
 # for local machine working
 # save_basefolder: str = "data/archive",
-def get_hydrology_readings (datestr: str,
-                            save_basefolder: str = "readings_hydrology_tn/hydrology",
-                            force_replace:bool = False
-                           ) -> pd.DataFrame|None:
-    """
-    Retrieve a file from the EA HYDROLOGY API corresponding to all readings for one day.
-    :param datestr:
-    :param save_basefolder:
-    :param force_replace:
-    :return:
+def _validate_hydrology_dataframe(
+    df: pd.DataFrame, datestr: str, source_path: str
+) -> None:
+    """Reject empty, malformed, or wrong-date hydrology source data."""
+    if df.empty:
+        raise ValueError(f"Hydrology source file has no data rows: {source_path}")
+
+    required_columns = {"measure", "dateTime", "date", "value"}
+    missing_columns = sorted(required_columns.difference(df.columns))
+    if missing_columns:
+        raise ValueError(
+            f"Hydrology source file is missing required columns "
+            f"{missing_columns}: {source_path}"
+        )
+
+    source_dates = set(df["date"].dropna().unique())
+    unexpected_dates = sorted(source_dates.difference({datestr}))
+    if not source_dates or unexpected_dates:
+        raise ValueError(
+            f"Hydrology source file contains unexpected dates "
+            f"{sorted(source_dates)}; expected only {datestr}: {source_path}"
+        )
+
+
+# for local machine working
+# save_basefolder: str = "data/archive",
+def get_hydrology_readings(
+    datestr: str,
+    save_basefolder: str = "readings_hydrology_tn/hydrology",
+    force_replace: bool = False,
+) -> pd.DataFrame | None:
+    """Retrieve and validate one daily readings file from the EA Hydrology API.
+
+    A replacement download is written beside the archive file with a .part
+    suffix. The existing archive file is preserved until the new file has been
+    fully written, parsed, validated, and hashed. os.replace then publishes the
+    validated file atomically.
     """
     logger.info(f"Processing date: {datestr}")
     logger.info(f"save_basefolder: {save_basefolder}")
     logger.info(f"force_replace  : {force_replace}")
 
-    '''
-    measure = {id}
-    date = {yyyy-mm-dd}
-    min-date = {yyyy-mm-dd}
-    mineq-date = {yyyy-mm-dd}
-    max-date = {yyyy-mm-dd}
-    maxeq-date = {yyyy-mm-dd}
-    earliest = {}
-    latest = {}
-    station = {guid}
-    station.RLOIid = {id}
-    station.wiskiID = {id}
-    observationType = {Qualified|Measured}
-    observedProperty = {
-        waterFlow|waterLevel|rainfall|groundwaterLevel|
-        dissolved-oxygen|fdom|bga|turbidity|chlorophyll|conductivity|temperature|ammonium|nitrate|ph
-    }
-    period = {number}
-    _view = {default|flow|full|min}
-    '''
-
-    url = f'{ea_root_url}/data/readings.csv?_view=full&_limit=1000000&date={datestr}'
-    # get year from first 4 chars of datestr
+    url = (
+        f"{ea_root_url}/data/readings.csv"
+        f"?_view=full&_limit=1000000&date={datestr}"
+    )
     year = datestr[:4]
-    save_folder = os.path.join(save_basefolder, year)  #2025/09/26 symlink (readings_hydrology) and subdirectories (yyyy) added. save_basefolder is ONLY the symlink (to /mnt/qnap_nfs/hydrology)
-    filename = f'hydro-{datestr}.csv'
+    save_folder = os.path.join(save_basefolder, year)
+    filename = f"hydro-{datestr}.csv"
 
-    os.makedirs(save_folder, exist_ok=True)  # Ensure the folder exists
+    os.makedirs(save_folder, exist_ok=True)
     filepath = os.path.join(save_folder, filename)
     logger.info(f"filepath  : {filepath}")
 
-    if os.path.exists(filepath):
-        logger.info(f"filepath found")
-        if force_replace:
-            logger.info(f"force_replace=True, attempting to delete: {filepath}")
-            try:
-                logger.info(f"os.path.isfile({filepath!r}) = {os.path.isfile(filepath)}")
-                os.remove(filepath)
-            except FileNotFoundError:
-                logger.warning(f"File disappeared before delete: {filepath}")
-            except PermissionError as e:
-                logger.error(f"Permission error deleting {filepath}: {e}")
-            except IsADirectoryError as e:
-                logger.error(f"Expected a file but {filepath} is a directory: {e}")
-            except OSError as e:
-                logger.error(f"OS error deleting {filepath}: {e}")
-            else:
-                logger.info(f"Successfully removed existing file: {filepath}")
+    if os.path.exists(filepath) and not force_replace:
+        logger.info("filepath found; validating existing local file")
+        try:
+            df = pd.read_csv(filepath, low_memory=False, dtype=str)
+            _validate_hydrology_dataframe(df, datestr, filepath)
+        except (
+            pd.errors.EmptyDataError,
+            pd.errors.ParserError,
+            UnicodeDecodeError,
+            ValueError,
+        ) as exc:
+            logger.warning(
+                f"Existing local file failed validation and will be preserved "
+                f"until a valid replacement is available: {filepath}: {exc}"
+            )
         else:
-            logger.info("force_replace=False, not deleting existing file here")
-            if os.path.getsize(filepath) == 0:
-                logger.warning(f"File exists, but is empty: {filepath}")
-                os.remove(filepath)
-                logger.info(f"Removed existing file: {filepath}")
-            else:
-                df = pd.read_csv(filepath, low_memory=False, dtype=str)
-                if df.empty or df.shape[1] == 0:
-                    logger.warning(f"File exists, but has no data or columns: {filepath}")
-                    os.remove(filepath)
-                    logger.info(f"Removed existing file: {filepath}")
-                else:
-                    logger.info(f"Using existing local file: {filepath}")
-                    return attach_source_checksum(df, filepath)
+            logger.info(f"Using existing validated local file: {filepath}")
+            return attach_source_checksum(df, filepath)
+    elif os.path.exists(filepath):
+        logger.info(
+            f"force_replace=True; preserving existing file until a validated "
+            f"replacement is ready: {filepath}"
+        )
 
-    # Download if the file doesn't exist after optional deletion
+    part_filepath = f"{filepath}.{os.getpid()}.part"
     t0 = time.perf_counter()
     response = requests.get(url, stream=True, timeout=60)
     t1 = time.perf_counter()
 
-    if response.status_code == 200:
-        logger.info(f'Fetching {url}')
-
-        # Save the file to local os
-        nbytes = 0
-        with open(filepath, 'wb', buffering=1024*1024) as f:   # the file auto-closes when we exit this "with context"
-            #for chunk in response.iter_content(chunk_size=8192):          # 8k chunk writes
-            for chunk in response.iter_content(chunk_size=1024 * 1024):   # 1Mb chunks reduces syscalls and i/o overhead
-                if not chunk:
-                    continue
-                f.write(chunk)
-                nbytes += len(chunk)
-            t2 = time.perf_counter()
-        logger.info(f"Saved: {filepath}")
-    else:
-        logger.warning(f'Response {response.status_code}: Failed to fetch data from {url}')
+    if response.status_code != 200:
+        logger.warning(
+            f"Response {response.status_code}: Failed to fetch data from {url}"
+        )
         return None
 
-    df = pd.read_csv(filepath, low_memory=False, dtype=str)
-    attach_source_checksum(df, filepath)
-    t3 = time.perf_counter()
+    logger.info(f"Fetching {url}")
+    nbytes = 0
+    try:
+        with open(part_filepath, "wb", buffering=1024 * 1024) as part_file:
+            for chunk in response.iter_content(chunk_size=1024 * 1024):
+                if not chunk:
+                    continue
+                part_file.write(chunk)
+                nbytes += len(chunk)
+        t2 = time.perf_counter()
 
+        df = pd.read_csv(part_filepath, low_memory=False, dtype=str)
+        _validate_hydrology_dataframe(df, datestr, part_filepath)
+        attach_source_checksum(df, part_filepath)
+        t3 = time.perf_counter()
+
+        os.replace(part_filepath, filepath)
+        logger.info(f"Validated and atomically saved: {filepath}")
+    except Exception:
+        if os.path.exists(part_filepath):
+            try:
+                os.remove(part_filepath)
+            except OSError:
+                logger.exception(
+                    f"Could not remove failed temporary download: {part_filepath}"
+                )
+        raise
+
+    write_seconds = max(t2 - t1, 1e-9)
     logger.info(f"GET (headers/conn): {t1 - t0:.3f}s")
-    logger.info(f"WRITE {nbytes / 1e6:.1f} MB: {t2 - t1:.3f}s  -> {(nbytes / 1e6) / (t2 - t1):.1f} MB/s")
-    logger.info(f"read_csv: {t3 - t2:.3f}s")
-    logger.info(f"TOTAL: {t3 - t0:.3f}s, file size on disk: {os.path.getsize(filepath) / 1e6:.1f} MB")
+    logger.info(
+        f"WRITE {nbytes / 1e6:.1f} MB: {write_seconds:.3f}s "
+        f" -> {(nbytes / 1e6) / write_seconds:.1f} MB/s"
+    )
+    logger.info(f"read_csv/validate/hash: {t3 - t2:.3f}s")
+    logger.info(
+        f"TOTAL: {t3 - t0:.3f}s, "
+        f"file size on disk: {os.path.getsize(filepath) / 1e6:.1f} MB"
+    )
     return df
 
 
