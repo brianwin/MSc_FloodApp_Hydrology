@@ -153,3 +153,20 @@ profile already contains the same checksum.
 Files without a prior successful database profile are reported and skipped.
 This prevents a checksum-only record with null database counts from becoming
 the latest Grafana datapoint.
+
+
+## Safe source-file replacement
+
+Hydrology downloads are written to a temporary `.part` file in the same
+directory as the archive file. Before publication, the temporary file must:
+
+- parse successfully as CSV;
+- contain at least one data row;
+- include `measure`, `dateTime`, `date`, and `value`;
+- contain only the requested reading date;
+- produce a SHA-256 checksum.
+
+Only then does `os.replace` atomically publish it as the daily archive CSV.
+When refreshing an existing date, the previous archive file remains untouched
+until the replacement has passed every validation. Failed temporary downloads
+are removed, while the previous file is retained.
