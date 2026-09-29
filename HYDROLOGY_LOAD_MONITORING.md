@@ -19,7 +19,7 @@ so upgrade an existing monitoring installation once with:
 
 ```sql
 ALTER TABLE production.hydrology_daily_profile
-    ADD COLUMN IF NOT EXISTS source_sha256 CHAR(64);
+    ADD COLUMN IF NOT EXISTS source_sha256 VARCHAR(64);
 ```
 
 New installations receive the column from the model and DDL automatically.
