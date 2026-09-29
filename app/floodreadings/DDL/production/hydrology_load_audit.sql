@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS production.hydrology_daily_profile (
     status TEXT NOT NULL DEFAULT 'succeeded',
     before_row_count BIGINT,
     source_row_count BIGINT,
-    source_sha256 CHAR(64),
+    source_sha256 VARCHAR(64),
     after_row_count BIGINT,
     station_count INTEGER,
     measure_count INTEGER,
@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS production.hydrology_daily_profile (
 );
 
 ALTER TABLE production.hydrology_daily_profile
-    ADD COLUMN IF NOT EXISTS source_sha256 CHAR(64);
+    ADD COLUMN IF NOT EXISTS source_sha256 VARCHAR(64);
 
 CREATE INDEX IF NOT EXISTS hydrology_daily_profile_date_idx
     ON production.hydrology_daily_profile (r_date, recorded_at);
