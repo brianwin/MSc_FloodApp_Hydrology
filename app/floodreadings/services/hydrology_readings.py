@@ -5,6 +5,7 @@
 
 import requests
 import os
+import hashlib
 
 import pandas as pd
 import math
@@ -75,6 +76,23 @@ def get_station_labels(worker_id:int=0):
             logger.exception(f'(T{worker_id}):get_station_labels: failed with error: {e}')
         logger.info(f'(T{worker_id}):Loaded {len(station_labels)} station labels into memory cache')
     return station_labels
+
+
+def calculate_file_sha256(filepath: str, chunk_size: int = 1024 * 1024) -> str:
+    """Return the SHA-256 digest of a source file without loading it into memory."""
+    digest = hashlib.sha256()
+    with open(filepath, "rb") as source_file:
+        for chunk in iter(lambda: source_file.read(chunk_size), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def attach_source_checksum(df: pd.DataFrame, filepath: str) -> pd.DataFrame:
+    """Attach source-file provenance to a dataframe without changing its columns."""
+    source_sha256 = calculate_file_sha256(filepath)
+    df.attrs["source_sha256"] = source_sha256
+    logger.info(f"Source SHA-256: {source_sha256}")
+    return df
 
 
 # for local machine working
@@ -156,7 +174,7 @@ def get_hydrology_readings (datestr: str,
                     logger.info(f"Removed existing file: {filepath}")
                 else:
                     logger.info(f"Using existing local file: {filepath}")
-                    return df
+                    return attach_source_checksum(df, filepath)
 
     # Download if the file doesn't exist after optional deletion
     t0 = time.perf_counter()
@@ -182,6 +200,7 @@ def get_hydrology_readings (datestr: str,
         return None
 
     df = pd.read_csv(filepath, low_memory=False, dtype=str)
+    attach_source_checksum(df, filepath)
     t3 = time.perf_counter()
 
     logger.info(f"GET (headers/conn): {t1 - t0:.3f}s")
@@ -328,6 +347,7 @@ def get_hydrology_readings_loop(upto:int = 3,
                 datestr = current_date.strftime('%Y-%m-%d')
                 before_row_count = get_daily_row_count(current_date)
                 source_row_count = None
+                source_sha256 = None
                 deleted_rows = 0
                 try:
                     date_exists = before_row_count > 0
@@ -336,6 +356,7 @@ def get_hydrology_readings_loop(upto:int = 3,
                     if df is None:
                         raise RuntimeError(f"No hydrology source data available for {datestr}")
                     source_row_count = len(df)
+                    source_sha256 = df.attrs.get("source_sha256")
                     logger.debug(f"Obtained {source_row_count} rows")
 
                     replace_day = False
@@ -365,6 +386,7 @@ def get_hydrology_readings_loop(upto:int = 3,
                         load_run_id=load_run_id,
                         before_row_count=before_row_count,
                         source_row_count=source_row_count,
+                        source_sha256=source_sha256,
                         rows_deleted=deleted_rows,
                         rows_inserted=insupd_summary.get("inserted", 0),
                         rows_updated=insupd_summary.get("updated", 0),
@@ -381,6 +403,7 @@ def get_hydrology_readings_loop(upto:int = 3,
                             status="failed",
                             before_row_count=before_row_count,
                             source_row_count=source_row_count,
+                            source_sha256=source_sha256,
                             rows_deleted=deleted_rows,
                             error_message=str(exc)[:4000],
                         )
