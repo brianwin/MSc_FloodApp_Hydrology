@@ -365,6 +365,51 @@ def get_hydrology_readings(
     return df
 
 
+def _latest_successful_checksum_profile(r_date):
+    """Return the newest successful profile that links source data to DB state."""
+    return (
+        db.session.query(HydrologyDailyProfile)
+        .filter(
+            HydrologyDailyProfile.r_date == r_date,
+            HydrologyDailyProfile.status == "succeeded",
+            HydrologyDailyProfile.source_sha256.isnot(None),
+            HydrologyDailyProfile.after_row_count.isnot(None),
+        )
+        .order_by(
+            HydrologyDailyProfile.recorded_at.desc(),
+            HydrologyDailyProfile.id.desc(),
+        )
+        .first()
+    )
+
+
+def _record_unchanged_profile(
+    *, r_date, load_run_id, previous_profile, source_row_count, source_sha256
+):
+    """Record a verified checksum match without rescanning or changing readings."""
+    profile = HydrologyDailyProfile(
+        load_run_id=load_run_id,
+        profile_kind="unchanged",
+        r_date=r_date,
+        status="succeeded",
+        before_row_count=previous_profile.after_row_count,
+        source_row_count=source_row_count,
+        source_sha256=source_sha256,
+        after_row_count=previous_profile.after_row_count,
+        station_count=previous_profile.station_count,
+        measure_count=previous_profile.measure_count,
+        first_reading_at=previous_profile.first_reading_at,
+        last_reading_at=previous_profile.last_reading_at,
+        rows_deleted=0,
+        rows_inserted=0,
+        rows_updated=0,
+        rows_affected=0,
+    )
+    db.session.add(profile)
+    db.session.commit()
+    return profile
+
+
 def get_hydrology_readings_loop(upto:int = 3,
                                 days_per_task:int = 1, max_workers:int = 1,
                                 gaps_only:bool = False,
@@ -513,6 +558,31 @@ def get_hydrology_readings_loop(upto:int = 3,
                     source_row_count = len(df)
                     source_sha256 = df.attrs.get("source_sha256")
                     logger.debug(f"Obtained {source_row_count} rows")
+
+                    previous_profile = _latest_successful_checksum_profile(current_date)
+                    checksum_unchanged = (
+                        previous_profile is not None
+                        and source_sha256 is not None
+                        and source_sha256 == previous_profile.source_sha256
+                        and before_row_count > 0
+                        and before_row_count == previous_profile.after_row_count
+                    )
+                    if checksum_unchanged:
+                        logger.info(
+                            f"(T{p_worker_id}):Source checksum unchanged for {datestr}; "
+                            f"database already contains {before_row_count} verified rows. "
+                            "Skipping delete and reload."
+                        )
+                        _record_unchanged_profile(
+                            r_date=current_date,
+                            load_run_id=load_run_id,
+                            previous_profile=previous_profile,
+                            source_row_count=source_row_count,
+                            source_sha256=source_sha256,
+                        )
+                        completed_dates.append(current_date)
+                        current_date += datetime.timedelta(days=1)
+                        continue
 
                     replace_day = False
                     if force_replace_at_db:
