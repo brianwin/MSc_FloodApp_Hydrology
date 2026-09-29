@@ -109,8 +109,14 @@ ORDER BY started_at DESC;
 
 Every successfully read local or downloaded daily CSV is hashed with SHA-256.
 The digest is stored in `production.hydrology_daily_profile.source_sha256`.
-This change records provenance only; it does not yet skip imports or change
-replacement behaviour.
+
+Before changing database rows, the loader compares the source digest with the
+latest successful checksum profile for that date. It skips deletion and import
+only when the digest matches, the date currently exists in the database, and
+the live database row count still matches the audited row count. The loader
+records the decision as an `unchanged` daily profile with zero affected rows.
+A changed checksum, missing profile, missing database date, or row-count
+mismatch follows the normal load/replacement path.
 
 Compare successive versions of a date with:
 
