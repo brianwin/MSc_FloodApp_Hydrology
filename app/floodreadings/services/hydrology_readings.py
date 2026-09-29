@@ -5,6 +5,10 @@
 
 import requests
 import os
+import csv
+import hashlib
+import re
+from pathlib import Path
 
 import pandas as pd
 import math
@@ -29,7 +33,7 @@ import datetime
 from dateutil.parser import parse
 
 from app import db
-from ..models import ReadingHydro
+from ..models import HydrologyDailyProfile, ReadingHydro
 from app.all_stations.models import HydStation   # to get station labels - just a nice to have
 from .hydrology_load_audit import (
     capture_daily_profile,
@@ -77,118 +81,333 @@ def get_station_labels(worker_id:int=0):
     return station_labels
 
 
+def calculate_file_sha256(filepath: str, chunk_size: int = 1024 * 1024) -> str:
+    """Return the SHA-256 digest of a source file without loading it into memory."""
+    digest = hashlib.sha256()
+    with open(filepath, "rb") as source_file:
+        for chunk in iter(lambda: source_file.read(chunk_size), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def attach_source_checksum(df: pd.DataFrame, filepath: str) -> pd.DataFrame:
+    """Attach source-file provenance to a dataframe without changing its columns."""
+    source_sha256 = calculate_file_sha256(filepath)
+    df.attrs["source_sha256"] = source_sha256
+    logger.info(f"Source SHA-256: {source_sha256}")
+    return df
+
+
+_SOURCE_FILE_PATTERN = re.compile(r"^hydro-(\d{4}-\d{2}-\d{2})\.csv$")
+
+
+def _count_csv_data_rows(filepath: Path) -> int:
+    """Count logical CSV records, excluding the header, without loading the file."""
+    with filepath.open("r", encoding="utf-8-sig", newline="") as source_file:
+        reader = csv.reader(source_file)
+        next(reader, None)
+        return sum(1 for _ in reader)
+
+
+def backfill_hydrology_source_checksums(
+    source_root="readings_hydrology_tn/hydrology",
+    start_date=None,
+    end_date=None,
+):
+    """Append checksum_backfill profiles for existing daily source CSV files.
+
+    This operation reads local files only. It does not download source data or
+    change production.reading_hydro.
+    """
+    source_root = Path(source_root)
+    if not source_root.is_dir():
+        raise FileNotFoundError(f"Hydrology source directory not found: {source_root}")
+
+    candidates = []
+    invalid_files = []
+    for filepath in sorted(source_root.rglob("hydro-*.csv")):
+        match = _SOURCE_FILE_PATTERN.fullmatch(filepath.name)
+        if not match:
+            invalid_files.append(str(filepath))
+            continue
+        try:
+            r_date = datetime.date.fromisoformat(match.group(1))
+        except ValueError:
+            invalid_files.append(str(filepath))
+            continue
+        if start_date and r_date < start_date:
+            continue
+        if end_date and r_date > end_date:
+            continue
+        candidates.append((r_date, filepath))
+
+    effective_start = candidates[0][0] if candidates else start_date
+    effective_end = candidates[-1][0] if candidates else end_date
+    run_id = create_load_run(
+        command="backfill-hydrology-source-checksums",
+        start_date=effective_start,
+        end_date=effective_end,
+        requested_dates=len(candidates),
+    )
+
+    created = 0
+    unchanged = 0
+    missing_profile = 0
+    failed = 0
+    errors = []
+
+    for r_date, filepath in candidates:
+        try:
+            source_sha256 = calculate_file_sha256(str(filepath))
+            latest_profile = (
+                db.session.query(HydrologyDailyProfile)
+                .filter(
+                    HydrologyDailyProfile.r_date == r_date,
+                    HydrologyDailyProfile.status == "succeeded",
+                    HydrologyDailyProfile.after_row_count.isnot(None),
+                )
+                .order_by(
+                    HydrologyDailyProfile.recorded_at.desc(),
+                    HydrologyDailyProfile.id.desc(),
+                )
+                .first()
+            )
+
+            if latest_profile is None:
+                missing_profile += 1
+                errors.append(f"{r_date}: no successful database profile")
+                logger.warning(
+                    f"Skipping checksum backfill for {r_date}: "
+                    "no successful database profile"
+                )
+                continue
+
+            if latest_profile.source_sha256 == source_sha256:
+                unchanged += 1
+                continue
+
+            profile = HydrologyDailyProfile(
+                load_run_id=run_id,
+                profile_kind="checksum_backfill",
+                r_date=r_date,
+                status="succeeded",
+                before_row_count=latest_profile.after_row_count,
+                source_row_count=_count_csv_data_rows(filepath),
+                source_sha256=source_sha256,
+                after_row_count=latest_profile.after_row_count,
+                station_count=latest_profile.station_count,
+                measure_count=latest_profile.measure_count,
+                first_reading_at=latest_profile.first_reading_at,
+                last_reading_at=latest_profile.last_reading_at,
+            )
+            db.session.add(profile)
+            db.session.commit()
+            created += 1
+        except Exception as exc:
+            db.session.rollback()
+            failed += 1
+            errors.append(f"{r_date}: {exc}")
+            logger.exception(f"Checksum backfill failed for {filepath}")
+
+    completed = created + unchanged
+    unsuccessful = missing_profile + failed
+    status = "succeeded" if unsuccessful == 0 else (
+        "partial" if completed else "failed"
+    )
+    finish_load_run(
+        run_id,
+        status=status,
+        completed_dates=completed,
+        failed_dates=unsuccessful,
+        error_message="; ".join(errors)[:4000] or None,
+    )
+
+    return run_id, {
+        "files_found": len(candidates),
+        "profiles_created": created,
+        "unchanged": unchanged,
+        "missing_profile": missing_profile,
+        "failed": failed,
+        "invalid_files": len(invalid_files),
+    }
+
+
 # for local machine working
 # save_basefolder: str = "data/archive",
-def get_hydrology_readings (datestr: str,
-                            save_basefolder: str = "readings_hydrology_tn/hydrology",
-                            force_replace:bool = False
-                           ) -> pd.DataFrame|None:
-    """
-    Retrieve a file from the EA HYDROLOGY API corresponding to all readings for one day.
-    :param datestr:
-    :param save_basefolder:
-    :param force_replace:
-    :return:
+def _validate_hydrology_dataframe(
+    df: pd.DataFrame, datestr: str, source_path: str
+) -> None:
+    """Reject empty, malformed, or wrong-date hydrology source data."""
+    if df.empty:
+        raise ValueError(f"Hydrology source file has no data rows: {source_path}")
+
+    required_columns = {"measure", "dateTime", "date", "value"}
+    missing_columns = sorted(required_columns.difference(df.columns))
+    if missing_columns:
+        raise ValueError(
+            f"Hydrology source file is missing required columns "
+            f"{missing_columns}: {source_path}"
+        )
+
+    source_dates = set(df["date"].dropna().unique())
+    unexpected_dates = sorted(source_dates.difference({datestr}))
+    if not source_dates or unexpected_dates:
+        raise ValueError(
+            f"Hydrology source file contains unexpected dates "
+            f"{sorted(source_dates)}; expected only {datestr}: {source_path}"
+        )
+
+
+# for local machine working
+# save_basefolder: str = "data/archive",
+def get_hydrology_readings(
+    datestr: str,
+    save_basefolder: str = "readings_hydrology_tn/hydrology",
+    force_replace: bool = False,
+) -> pd.DataFrame | None:
+    """Retrieve and validate one daily readings file from the EA Hydrology API.
+
+    A replacement download is written beside the archive file with a .part
+    suffix. The existing archive file is preserved until the new file has been
+    fully written, parsed, validated, and hashed. os.replace then publishes the
+    validated file atomically.
     """
     logger.info(f"Processing date: {datestr}")
     logger.info(f"save_basefolder: {save_basefolder}")
     logger.info(f"force_replace  : {force_replace}")
 
-    '''
-    measure = {id}
-    date = {yyyy-mm-dd}
-    min-date = {yyyy-mm-dd}
-    mineq-date = {yyyy-mm-dd}
-    max-date = {yyyy-mm-dd}
-    maxeq-date = {yyyy-mm-dd}
-    earliest = {}
-    latest = {}
-    station = {guid}
-    station.RLOIid = {id}
-    station.wiskiID = {id}
-    observationType = {Qualified|Measured}
-    observedProperty = {
-        waterFlow|waterLevel|rainfall|groundwaterLevel|
-        dissolved-oxygen|fdom|bga|turbidity|chlorophyll|conductivity|temperature|ammonium|nitrate|ph
-    }
-    period = {number}
-    _view = {default|flow|full|min}
-    '''
-
-    url = f'{ea_root_url}/data/readings.csv?_view=full&_limit=1000000&date={datestr}'
-    # get year from first 4 chars of datestr
+    url = (
+        f"{ea_root_url}/data/readings.csv"
+        f"?_view=full&_limit=1000000&date={datestr}"
+    )
     year = datestr[:4]
-    save_folder = os.path.join(save_basefolder, year)  #2025/09/26 symlink (readings_hydrology) and subdirectories (yyyy) added. save_basefolder is ONLY the symlink (to /mnt/qnap_nfs/hydrology)
-    filename = f'hydro-{datestr}.csv'
+    save_folder = os.path.join(save_basefolder, year)
+    filename = f"hydro-{datestr}.csv"
 
-    os.makedirs(save_folder, exist_ok=True)  # Ensure the folder exists
+    os.makedirs(save_folder, exist_ok=True)
     filepath = os.path.join(save_folder, filename)
     logger.info(f"filepath  : {filepath}")
 
-    if os.path.exists(filepath):
-        logger.info(f"filepath found")
-        if force_replace:
-            logger.info(f"force_replace=True, attempting to delete: {filepath}")
-            try:
-                logger.info(f"os.path.isfile({filepath!r}) = {os.path.isfile(filepath)}")
-                os.remove(filepath)
-            except FileNotFoundError:
-                logger.warning(f"File disappeared before delete: {filepath}")
-            except PermissionError as e:
-                logger.error(f"Permission error deleting {filepath}: {e}")
-            except IsADirectoryError as e:
-                logger.error(f"Expected a file but {filepath} is a directory: {e}")
-            except OSError as e:
-                logger.error(f"OS error deleting {filepath}: {e}")
-            else:
-                logger.info(f"Successfully removed existing file: {filepath}")
+    if os.path.exists(filepath) and not force_replace:
+        logger.info("filepath found; validating existing local file")
+        try:
+            df = pd.read_csv(filepath, low_memory=False, dtype=str)
+            _validate_hydrology_dataframe(df, datestr, filepath)
+        except (
+            pd.errors.EmptyDataError,
+            pd.errors.ParserError,
+            UnicodeDecodeError,
+            ValueError,
+        ) as exc:
+            logger.warning(
+                f"Existing local file failed validation and will be preserved "
+                f"until a valid replacement is available: {filepath}: {exc}"
+            )
         else:
-            logger.info("force_replace=False, not deleting existing file here")
-            if os.path.getsize(filepath) == 0:
-                logger.warning(f"File exists, but is empty: {filepath}")
-                os.remove(filepath)
-                logger.info(f"Removed existing file: {filepath}")
-            else:
-                df = pd.read_csv(filepath, low_memory=False, dtype=str)
-                if df.empty or df.shape[1] == 0:
-                    logger.warning(f"File exists, but has no data or columns: {filepath}")
-                    os.remove(filepath)
-                    logger.info(f"Removed existing file: {filepath}")
-                else:
-                    logger.info(f"Using existing local file: {filepath}")
-                    return df
+            logger.info(f"Using existing validated local file: {filepath}")
+            return attach_source_checksum(df, filepath)
+    elif os.path.exists(filepath):
+        logger.info(
+            f"force_replace=True; preserving existing file until a validated "
+            f"replacement is ready: {filepath}"
+        )
 
-    # Download if the file doesn't exist after optional deletion
+    part_filepath = f"{filepath}.{os.getpid()}.part"
     t0 = time.perf_counter()
     response = requests.get(url, stream=True, timeout=60)
     t1 = time.perf_counter()
 
-    if response.status_code == 200:
-        logger.info(f'Fetching {url}')
-
-        # Save the file to local os
-        nbytes = 0
-        with open(filepath, 'wb', buffering=1024*1024) as f:   # the file auto-closes when we exit this "with context"
-            #for chunk in response.iter_content(chunk_size=8192):          # 8k chunk writes
-            for chunk in response.iter_content(chunk_size=1024 * 1024):   # 1Mb chunks reduces syscalls and i/o overhead
-                if not chunk:
-                    continue
-                f.write(chunk)
-                nbytes += len(chunk)
-            t2 = time.perf_counter()
-        logger.info(f"Saved: {filepath}")
-    else:
-        logger.warning(f'Response {response.status_code}: Failed to fetch data from {url}')
+    if response.status_code != 200:
+        logger.warning(
+            f"Response {response.status_code}: Failed to fetch data from {url}"
+        )
         return None
 
-    df = pd.read_csv(filepath, low_memory=False, dtype=str)
-    t3 = time.perf_counter()
+    logger.info(f"Fetching {url}")
+    nbytes = 0
+    try:
+        with open(part_filepath, "wb", buffering=1024 * 1024) as part_file:
+            for chunk in response.iter_content(chunk_size=1024 * 1024):
+                if not chunk:
+                    continue
+                part_file.write(chunk)
+                nbytes += len(chunk)
+        t2 = time.perf_counter()
 
+        df = pd.read_csv(part_filepath, low_memory=False, dtype=str)
+        _validate_hydrology_dataframe(df, datestr, part_filepath)
+        attach_source_checksum(df, part_filepath)
+        t3 = time.perf_counter()
+
+        os.replace(part_filepath, filepath)
+        logger.info(f"Validated and atomically saved: {filepath}")
+    except Exception:
+        if os.path.exists(part_filepath):
+            try:
+                os.remove(part_filepath)
+            except OSError:
+                logger.exception(
+                    f"Could not remove failed temporary download: {part_filepath}"
+                )
+        raise
+
+    write_seconds = max(t2 - t1, 1e-9)
     logger.info(f"GET (headers/conn): {t1 - t0:.3f}s")
-    logger.info(f"WRITE {nbytes / 1e6:.1f} MB: {t2 - t1:.3f}s  -> {(nbytes / 1e6) / (t2 - t1):.1f} MB/s")
-    logger.info(f"read_csv: {t3 - t2:.3f}s")
-    logger.info(f"TOTAL: {t3 - t0:.3f}s, file size on disk: {os.path.getsize(filepath) / 1e6:.1f} MB")
+    logger.info(
+        f"WRITE {nbytes / 1e6:.1f} MB: {write_seconds:.3f}s "
+        f" -> {(nbytes / 1e6) / write_seconds:.1f} MB/s"
+    )
+    logger.info(f"read_csv/validate/hash: {t3 - t2:.3f}s")
+    logger.info(
+        f"TOTAL: {t3 - t0:.3f}s, "
+        f"file size on disk: {os.path.getsize(filepath) / 1e6:.1f} MB"
+    )
     return df
+
+
+def _latest_successful_checksum_profile(r_date):
+    """Return the newest successful profile that links source data to DB state."""
+    return (
+        db.session.query(HydrologyDailyProfile)
+        .filter(
+            HydrologyDailyProfile.r_date == r_date,
+            HydrologyDailyProfile.status == "succeeded",
+            HydrologyDailyProfile.source_sha256.isnot(None),
+            HydrologyDailyProfile.after_row_count.isnot(None),
+        )
+        .order_by(
+            HydrologyDailyProfile.recorded_at.desc(),
+            HydrologyDailyProfile.id.desc(),
+        )
+        .first()
+    )
+
+
+def _record_unchanged_profile(
+    *, r_date, load_run_id, previous_profile, source_row_count, source_sha256
+):
+    """Record a verified checksum match without rescanning or changing readings."""
+    profile = HydrologyDailyProfile(
+        load_run_id=load_run_id,
+        profile_kind="unchanged",
+        r_date=r_date,
+        status="succeeded",
+        before_row_count=previous_profile.after_row_count,
+        source_row_count=source_row_count,
+        source_sha256=source_sha256,
+        after_row_count=previous_profile.after_row_count,
+        station_count=previous_profile.station_count,
+        measure_count=previous_profile.measure_count,
+        first_reading_at=previous_profile.first_reading_at,
+        last_reading_at=previous_profile.last_reading_at,
+        rows_deleted=0,
+        rows_inserted=0,
+        rows_updated=0,
+        rows_affected=0,
+    )
+    db.session.add(profile)
+    db.session.commit()
+    return profile
 
 
 def get_hydrology_readings_loop(upto:int = 3,
@@ -328,6 +547,7 @@ def get_hydrology_readings_loop(upto:int = 3,
                 datestr = current_date.strftime('%Y-%m-%d')
                 before_row_count = get_daily_row_count(current_date)
                 source_row_count = None
+                source_sha256 = None
                 deleted_rows = 0
                 try:
                     date_exists = before_row_count > 0
@@ -336,7 +556,33 @@ def get_hydrology_readings_loop(upto:int = 3,
                     if df is None:
                         raise RuntimeError(f"No hydrology source data available for {datestr}")
                     source_row_count = len(df)
+                    source_sha256 = df.attrs.get("source_sha256")
                     logger.debug(f"Obtained {source_row_count} rows")
+
+                    previous_profile = _latest_successful_checksum_profile(current_date)
+                    checksum_unchanged = (
+                        previous_profile is not None
+                        and source_sha256 is not None
+                        and source_sha256 == previous_profile.source_sha256
+                        and before_row_count > 0
+                        and before_row_count == previous_profile.after_row_count
+                    )
+                    if checksum_unchanged:
+                        logger.info(
+                            f"(T{p_worker_id}):Source checksum unchanged for {datestr}; "
+                            f"database already contains {before_row_count} verified rows. "
+                            "Skipping delete and reload."
+                        )
+                        _record_unchanged_profile(
+                            r_date=current_date,
+                            load_run_id=load_run_id,
+                            previous_profile=previous_profile,
+                            source_row_count=source_row_count,
+                            source_sha256=source_sha256,
+                        )
+                        completed_dates.append(current_date)
+                        current_date += datetime.timedelta(days=1)
+                        continue
 
                     replace_day = False
                     if force_replace_at_db:
@@ -365,6 +611,7 @@ def get_hydrology_readings_loop(upto:int = 3,
                         load_run_id=load_run_id,
                         before_row_count=before_row_count,
                         source_row_count=source_row_count,
+                        source_sha256=source_sha256,
                         rows_deleted=deleted_rows,
                         rows_inserted=insupd_summary.get("inserted", 0),
                         rows_updated=insupd_summary.get("updated", 0),
@@ -381,6 +628,7 @@ def get_hydrology_readings_loop(upto:int = 3,
                             status="failed",
                             before_row_count=before_row_count,
                             source_row_count=source_row_count,
+                            source_sha256=source_sha256,
                             rows_deleted=deleted_rows,
                             error_message=str(exc)[:4000],
                         )

@@ -49,6 +49,7 @@ class HydrologyDailyProfile(db.Model):
 
     before_row_count = db.Column(db.BigInteger)
     source_row_count = db.Column(db.BigInteger)
+    source_sha256 = db.Column(db.String(64))
     after_row_count = db.Column(db.BigInteger)
     station_count = db.Column(db.Integer)
     measure_count = db.Column(db.Integer)
