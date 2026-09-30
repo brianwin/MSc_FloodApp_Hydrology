@@ -1,6 +1,7 @@
 from .hydrology_readings import (
     backfill_hydrology_source_checksums,
     get_hydrology_readings_loop,
+    HydrologyPartialLoadError,
 )
 from .hydrology_load_audit import capture_historical_baseline
 
