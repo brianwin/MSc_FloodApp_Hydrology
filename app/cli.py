@@ -12,6 +12,7 @@ from .floodreadings.services import (
     backfill_hydrology_source_checksums,
     capture_historical_baseline,
     get_hydrology_readings_loop,
+    HydrologyPartialLoadError,
 )
 from .floodreadings.models import ReadingHydro
 from .climatology.services import run_climatology_range, run_climatology_baseline, run_climatology_baseline_weibull
@@ -100,6 +101,14 @@ def load_floodarea_metrics_command():
 
 
 
+def _run_hydrology_loader(**kwargs):
+    """Render expected partial runs concisely while preserving a failing exit code."""
+    try:
+        return get_hydrology_readings_loop(**kwargs)
+    except HydrologyPartialLoadError as exc:
+        raise click.ClickException(str(exc)) from None
+
+
 # This is for the hydrology API
 @click.command('get-hydrology-readings-data')
 @click.option('--force_start_date',
@@ -122,7 +131,7 @@ def get_hydrology_data_command(force_start_date, force_end_date, force_replace):
     # noinspection PyProtectedMember
     app = current_app._get_current_object()
     with app.app_context():
-        get_hydrology_readings_loop(app=app,
+        _run_hydrology_loader(app=app,
                                     force_start_date=force_start_date,
                                     force_end_date=force_end_date,
                                     force_replace=force_replace,
@@ -142,7 +151,7 @@ def get_hydrology_data_latest_command(num_days_before_last_reading):
         #TODO This needs to start 14 days prior to latest r_date from ReadingHydro
         force_end_date = (datetime.datetime.now(datetime.timezone.utc).date() - datetime.timedelta(days=1))
         force_start_date = db.session.query(func.max(ReadingHydro.r_datetime)).scalar().date()- datetime.timedelta(days=num_days_before_last_reading)
-        get_hydrology_readings_loop(app=app,
+        _run_hydrology_loader(app=app,
                                     force_start_date=force_start_date,
                                     force_end_date=force_end_date,
                                     force_replace=True,
@@ -167,7 +176,7 @@ def get_hydrology_data_gaps_command(gaps_only, force_start_date, force_end_date,
     # noinspection PyProtectedMember
     app = current_app._get_current_object()
     with app.app_context():
-        get_hydrology_readings_loop(app=app,
+        _run_hydrology_loader(app=app,
                                     gaps_only=gaps_only,
                                     force_start_date=force_start_date.date() if force_start_date is not None else None,
                                     force_end_date  =force_end_date.date() if force_end_date  is not None else None,
