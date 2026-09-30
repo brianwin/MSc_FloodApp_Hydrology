@@ -64,6 +64,27 @@ ea_root_url = 'http://environment.data.gov.uk/hydrology'          # source data 
 #        pass  # Handles special keys like shift, ctrl, etc.
 
 
+class HydrologySourceUnavailable(RuntimeError):
+    """Expected operational failure when EA supplies no usable source data."""
+
+
+class HydrologyPartialLoadError(RuntimeError):
+    """A completed loader run in which one or more dates failed."""
+
+    def __init__(self, run_id, completed_dates, failed_dates):
+        outcome = "completed partially" if completed_dates else "failed"
+        lines = [
+            f"Hydrology load run {run_id} {outcome}: "
+            f"{len(completed_dates)} succeeded, {len(failed_dates)} failed.",
+            "Failed dates:",
+        ]
+        lines.extend(f"  {r_date}: {message}" for r_date, message in failed_dates)
+        super().__init__("\n".join(lines))
+        self.run_id = run_id
+        self.completed_dates = completed_dates
+        self.failed_dates = failed_dates
+
+
 station_labels = None
 def get_station_labels(worker_id:int=0):
     """Lazily load station labels on first access."""
@@ -273,8 +294,9 @@ def get_hydrology_readings(
     validated file atomically.
     """
     logger.info(f"Processing date: {datestr}")
-    logger.info(f"save_basefolder: {save_basefolder}")
-    logger.info(f"force_replace  : {force_replace}")
+    logger.debug(
+        f"source_root={save_basefolder}; force_replace={force_replace}"
+    )
 
     url = (
         f"{ea_root_url}/data/readings.csv"
@@ -286,7 +308,7 @@ def get_hydrology_readings(
 
     os.makedirs(save_folder, exist_ok=True)
     filepath = os.path.join(save_folder, filename)
-    logger.info(f"filepath  : {filepath}")
+    logger.debug(f"source_path={filepath}")
 
     if os.path.exists(filepath) and not force_replace:
         logger.info("filepath found; validating existing local file")
@@ -308,8 +330,7 @@ def get_hydrology_readings(
             return attach_source_checksum(df, filepath)
     elif os.path.exists(filepath):
         logger.info(
-            f"force_replace=True; preserving existing file until a validated "
-            f"replacement is ready: {filepath}"
+            "Refreshing source file; existing archive retained pending validation"
         )
 
     part_filepath = f"{filepath}.{os.getpid()}.part"
@@ -323,7 +344,8 @@ def get_hydrology_readings(
         )
         return None
 
-    logger.info(f"Fetching {url}")
+    logger.info(f"Fetching EA hydrology readings for {datestr}")
+    logger.debug(f"source_url={url}")
     nbytes = 0
     try:
         with open(part_filepath, "wb", buffering=1024 * 1024) as part_file:
@@ -554,7 +576,9 @@ def get_hydrology_readings_loop(upto:int = 3,
                     logger.debug(f"++++ Loading data for {datestr}")
                     df = get_hydrology_readings(datestr, force_replace=force_replace)
                     if df is None:
-                        raise RuntimeError(f"No hydrology source data available for {datestr}")
+                        raise HydrologySourceUnavailable(
+                            f"No hydrology source data available for {datestr}"
+                        )
                     source_row_count = len(df)
                     source_sha256 = df.attrs.get("source_sha256")
                     logger.debug(f"Obtained {source_row_count} rows")
@@ -619,7 +643,12 @@ def get_hydrology_readings_loop(upto:int = 3,
                     )
                     completed_dates.append(current_date)
                 except Exception as exc:
-                    logger.exception(f"(T{p_worker_id}):Hydrology load failed for {datestr}")
+                    if isinstance(exc, HydrologySourceUnavailable):
+                        logger.warning(f"(T{p_worker_id}):{exc}")
+                    else:
+                        logger.exception(
+                            f"(T{p_worker_id}):Hydrology load failed for {datestr}"
+                        )
                     db.session.rollback()
                     try:
                         capture_daily_profile(
@@ -674,8 +703,8 @@ def get_hydrology_readings_loop(upto:int = 3,
             error_message=errors[:4000] or None,
         )
         if failed_dates:
-            raise RuntimeError(
-                f"Hydrology load run {load_run_id} failed for {len(failed_dates)} date(s)"
+            raise HydrologyPartialLoadError(
+                load_run_id, completed_dates, failed_dates
             )
     except Exception as exc:
         db.session.rollback()
