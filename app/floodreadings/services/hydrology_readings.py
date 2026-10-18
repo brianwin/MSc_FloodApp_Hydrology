@@ -19,7 +19,7 @@ from collections import Counter
 #import threading
 
 from flask import current_app
-from sqlalchemy import Date
+from sqlalchemy import Date, tuple_
 from sqlalchemy.orm import scoped_session, sessionmaker
 from sqlalchemy.sql import select, func, distinct, exists, literal_column
 from sqlalchemy.sql.expression import cast
@@ -279,12 +279,113 @@ def _validate_hydrology_dataframe(
         )
 
 
+_SOURCE_DELTA_KEY_COLUMNS = ["measure", "dateTime"]
+_SOURCE_DELTA_VALUE_COLUMNS = [
+    "value", "completeness", "quality", "qcode",
+    "valid", "invalid", "missing",
+]
+
+
+def _prepare_source_comparison_frame(df: pd.DataFrame) -> pd.DataFrame:
+    """Return a normalized, uniquely keyed source frame for vectorized comparison."""
+    missing = [
+        column for column in _SOURCE_DELTA_KEY_COLUMNS
+        if column not in df.columns
+    ]
+    if missing:
+        raise ValueError(f"Source delta comparison is missing key columns: {missing}")
+
+    comparison = df.copy()
+    for column in _SOURCE_DELTA_VALUE_COLUMNS:
+        if column not in comparison.columns:
+            comparison[column] = pd.NA
+
+    if comparison[_SOURCE_DELTA_KEY_COLUMNS].isna().any(axis=None):
+        raise ValueError("Source delta comparison found a null measure/dateTime key")
+
+    duplicate_count = int(
+        comparison.duplicated(_SOURCE_DELTA_KEY_COLUMNS, keep=False).sum()
+    )
+    if duplicate_count:
+        raise ValueError(
+            f"Source delta comparison found {duplicate_count} rows with duplicate keys"
+        )
+
+    comparison[_SOURCE_DELTA_VALUE_COLUMNS] = (
+        comparison[_SOURCE_DELTA_VALUE_COLUMNS].fillna("")
+    )
+    return comparison.set_index(_SOURCE_DELTA_KEY_COLUMNS, drop=True).sort_index()
+
+
+def compare_hydrology_source_frames(
+    previous_df: pd.DataFrame, new_df: pd.DataFrame
+) -> dict:
+    """Compare two validated EA daily files without transforming every reading."""
+    previous = _prepare_source_comparison_frame(previous_df)
+    new = _prepare_source_comparison_frame(new_df)
+
+    added_keys = new.index.difference(previous.index)
+    deleted_keys = previous.index.difference(new.index)
+    common_keys = new.index.intersection(previous.index)
+
+    previous_values = previous.loc[common_keys, _SOURCE_DELTA_VALUE_COLUMNS]
+    new_values = new.loc[common_keys, _SOURCE_DELTA_VALUE_COLUMNS]
+    changed_mask = new_values.ne(previous_values).any(axis=1)
+    changed_keys = common_keys[changed_mask.to_numpy()]
+
+    delta_keys = added_keys.append(changed_keys)
+    delta_df = new.loc[delta_keys].reset_index()
+
+    return {
+        "previous_row_count": len(previous),
+        "new_row_count": len(new),
+        "added": len(added_keys),
+        "changed": len(changed_keys),
+        "deleted": len(deleted_keys),
+        "delta_df": delta_df,
+        "deleted_keys": list(deleted_keys),
+        "source_eligible": True,
+        "source_ineligible_reason": None,
+    }
+
+
+def _delete_readings_by_source_keys(source_keys) -> int:
+    """Delete source readings identified by raw (measure, dateTime) keys."""
+    if not source_keys:
+        return 0
+
+    database_keys = []
+    for measure, date_time in source_keys:
+        notation = measure.replace(
+            f"{ea_root_url}/id/measures/", ""
+        ).strip()
+        database_keys.append((notation, parse(date_time)))
+
+    deleted = 0
+    # Keep PostgreSQL bind-parameter counts comfortably below its limit.
+    for start in range(0, len(database_keys), 5000):
+        key_batch = database_keys[start:start + 5000]
+        deleted += (
+            db.session.query(ReadingHydro)
+            .filter(
+                tuple_(
+                    ReadingHydro.notation,
+                    ReadingHydro.r_datetime,
+                ).in_(key_batch)
+            )
+            .delete(synchronize_session=False)
+        )
+    db.session.commit()
+    return deleted
+
+
 # for local machine working
 # save_basefolder: str = "data/archive",
 def get_hydrology_readings(
     datestr: str,
     save_basefolder: str = "readings_hydrology_tn/hydrology",
     force_replace: bool = False,
+    analyze_source_delta: bool = False,
 ) -> pd.DataFrame | None:
     """Retrieve and validate one daily readings file from the EA Hydrology API.
 
@@ -328,7 +429,24 @@ def get_hydrology_readings(
         else:
             logger.info(f"Using existing validated local file: {filepath}")
             return attach_source_checksum(df, filepath)
-    elif os.path.exists(filepath):
+    previous_df = None
+    previous_source_sha256 = None
+    source_delta_error = None
+    if os.path.exists(filepath) and force_replace and analyze_source_delta:
+        try:
+            previous_df = pd.read_csv(filepath, low_memory=False, dtype=str)
+            _validate_hydrology_dataframe(previous_df, datestr, filepath)
+            previous_source_sha256 = calculate_file_sha256(filepath)
+        except (
+            pd.errors.EmptyDataError,
+            pd.errors.ParserError,
+            UnicodeDecodeError,
+            ValueError,
+        ) as exc:
+            source_delta_error = f"Previous archive is not comparable: {exc}"
+            logger.warning(source_delta_error)
+
+    if os.path.exists(filepath) and force_replace:
         logger.info(
             "Refreshing source file; existing archive retained pending validation"
         )
@@ -359,6 +477,61 @@ def get_hydrology_readings(
         df = pd.read_csv(part_filepath, low_memory=False, dtype=str)
         _validate_hydrology_dataframe(df, datestr, part_filepath)
         attach_source_checksum(df, part_filepath)
+
+        if analyze_source_delta:
+            source_delta = None
+            if previous_df is None:
+                source_delta = {
+                    "previous_row_count": None,
+                    "new_row_count": len(df),
+                    "added": None,
+                    "changed": None,
+                    "deleted": None,
+                    "delta_df": None,
+                    "deleted_keys": None,
+                    "source_eligible": False,
+                    "source_ineligible_reason": (
+                        source_delta_error or "No previous validated archive exists"
+                    ),
+                }
+            elif previous_source_sha256 == df.attrs.get("source_sha256"):
+                source_delta = {
+                    "previous_row_count": len(previous_df),
+                    "new_row_count": len(df),
+                    "added": 0,
+                    "changed": 0,
+                    "deleted": 0,
+                    "delta_df": df.iloc[0:0].copy(),
+                    "deleted_keys": [],
+                    "source_eligible": True,
+                    "source_ineligible_reason": None,
+                }
+            else:
+                try:
+                    source_delta = compare_hydrology_source_frames(previous_df, df)
+                except ValueError as exc:
+                    source_delta = {
+                        "previous_row_count": len(previous_df),
+                        "new_row_count": len(df),
+                        "added": None,
+                        "changed": None,
+                        "deleted": None,
+                        "delta_df": None,
+                        "deleted_keys": None,
+                        "source_eligible": False,
+                        "source_ineligible_reason": str(exc),
+                    }
+            source_delta["previous_source_sha256"] = previous_source_sha256
+            df.attrs["source_delta"] = source_delta
+            logger.info(
+                "Source delta: old=%s new=%s added=%s changed=%s deleted=%s",
+                source_delta["previous_row_count"],
+                source_delta["new_row_count"],
+                source_delta["added"],
+                source_delta["changed"],
+                source_delta["deleted"],
+            )
+
         t3 = time.perf_counter()
 
         os.replace(part_filepath, filepath)
@@ -439,8 +612,14 @@ def get_hydrology_readings_loop(upto:int = 3,
                                 force_start_date: datetime.date = None,
                                 force_end_date: datetime.date = None,
                                 force_replace:bool = False,
-                                force_replace_at_db:bool = False
+                                force_replace_at_db:bool = False,
+                                reconciliation_mode:str = "full"
                                ):
+    if reconciliation_mode not in {"full", "shadow", "incremental"}:
+        raise ValueError(
+            "reconciliation_mode must be one of: full, shadow, incremental"
+        )
+
     #import torch
     #logger.info(f"torch version:   {torch.__version__}")
     #logger.info(f"torch available: {torch.cuda.is_available()}")
@@ -574,13 +753,20 @@ def get_hydrology_readings_loop(upto:int = 3,
                 try:
                     date_exists = before_row_count > 0
                     logger.debug(f"++++ Loading data for {datestr}")
-                    df = get_hydrology_readings(datestr, force_replace=force_replace)
+                    df = get_hydrology_readings(
+                        datestr,
+                        force_replace=force_replace,
+                        analyze_source_delta=reconciliation_mode in {
+                            "shadow", "incremental"
+                        },
+                    )
                     if df is None:
                         raise HydrologySourceUnavailable(
                             f"No hydrology source data available for {datestr}"
                         )
                     source_row_count = len(df)
                     source_sha256 = df.attrs.get("source_sha256")
+                    source_delta = df.attrs.get("source_delta")
                     logger.debug(f"Obtained {source_row_count} rows")
 
                     previous_profile = _latest_successful_checksum_profile(current_date)
@@ -608,24 +794,151 @@ def get_hydrology_readings_loop(upto:int = 3,
                         current_date += datetime.timedelta(days=1)
                         continue
 
+                    previous_source_row_count = (
+                        source_delta.get("previous_row_count")
+                        if source_delta else None
+                    )
+                    source_delta_added = (
+                        source_delta.get("added") if source_delta else None
+                    )
+                    source_delta_changed = (
+                        source_delta.get("changed") if source_delta else None
+                    )
+                    source_delta_deleted = (
+                        source_delta.get("deleted") if source_delta else None
+                    )
+                    delta_eligible = False
+                    delta_fallback_reason = None
+
+                    if reconciliation_mode in {"shadow", "incremental"}:
+                        eligibility_failures = []
+                        if not source_delta:
+                            eligibility_failures.append(
+                                "No comparable previous source archive"
+                            )
+                        elif not source_delta.get("source_eligible"):
+                            eligibility_failures.append(
+                                source_delta.get("source_ineligible_reason")
+                                or "Source files are not safely comparable"
+                            )
+                        if previous_profile is None:
+                            eligibility_failures.append(
+                                "No successful checksum-linked database profile"
+                            )
+                        elif source_delta:
+                            if (
+                                previous_profile.source_sha256
+                                != source_delta.get("previous_source_sha256")
+                            ):
+                                eligibility_failures.append(
+                                    "Archived source checksum does not match "
+                                    "the last successful database profile"
+                                )
+                            if (
+                                previous_profile.after_row_count
+                                != source_delta.get("previous_row_count")
+                            ):
+                                eligibility_failures.append(
+                                    "Previous source row count does not match "
+                                    "the last successful database profile"
+                                )
+                        if (
+                            source_delta
+                            and before_row_count
+                            != source_delta.get("previous_row_count")
+                        ):
+                            eligibility_failures.append(
+                                "Current database row count does not match "
+                                "the previous source file"
+                            )
+                        delta_eligible = not eligibility_failures
+                        delta_fallback_reason = "; ".join(eligibility_failures) or None
+
+                    use_incremental = (
+                        reconciliation_mode == "incremental" and delta_eligible
+                    )
+                    reconciliation_method = (
+                        "incremental" if use_incremental
+                        else "full"
+                    )
+                    if reconciliation_mode == "shadow":
+                        reconciliation_method = "shadow_full"
+
                     replace_day = False
-                    if force_replace_at_db:
-                        deleted_rows = delete_for_date(datestr)
-                        logger.info(
-                            f"(T{p_worker_id}):Deleted from readings table for {datestr}:  {deleted_rows} rows")
-                        replace_day = True
-                    logger.info(
-                        f"(T{p_worker_id}):Loading hydrology data for {datestr} - {len(df)} rows")
                     t0 = time.perf_counter()
-                    # if the date does not exist in the database then it's safe to perform a (much faster) bulk load
-                    status_summary, insupd_summary = threaded_insert(
-                                                      df,
-                                                      chunk_size=20000, max_workers=8,  #was 32 (too much WAL bound concurrency)
-                                                      ea_datasource=f"hydro-{datestr}",
-                                                      app=app,
-                                                      worker_id=p_worker_id,
-                                                      bulk_load= replace_day or (not date_exists)
-                                                     )
+                    if use_incremental:
+                        try:
+                            deleted_rows = _delete_readings_by_source_keys(
+                                source_delta["deleted_keys"]
+                            )
+                            delta_df = source_delta["delta_df"]
+                            logger.info(
+                                f"(T{p_worker_id}):Applying source delta for "
+                                f"{datestr}: {source_delta_added} added, "
+                                f"{source_delta_changed} changed, "
+                                f"{source_delta_deleted} deleted"
+                            )
+                            status_summary, insupd_summary = threaded_insert(
+                                delta_df,
+                                chunk_size=2000,
+                                max_workers=8,
+                                ea_datasource=f"hydro-{datestr}",
+                                app=app,
+                                worker_id=p_worker_id,
+                                bulk_load=False,
+                            )
+                            insupd_summary["inserted"] = source_delta_added
+                            insupd_summary["updated"] = source_delta_changed
+                        except Exception as exc:
+                            db.session.rollback()
+                            logger.exception(
+                                f"(T{p_worker_id}):Incremental reconciliation "
+                                f"failed for {datestr}; falling back to full replacement"
+                            )
+                            delta_eligible = False
+                            delta_fallback_reason = (
+                                f"Incremental application failed: {exc}"
+                            )
+                            reconciliation_method = "incremental_fallback_full"
+                            deleted_rows = delete_for_date(datestr)
+                            replace_day = True
+                            status_summary, insupd_summary = threaded_insert(
+                                df,
+                                chunk_size=20000,
+                                max_workers=8,
+                                ea_datasource=f"hydro-{datestr}",
+                                app=app,
+                                worker_id=p_worker_id,
+                                bulk_load=True,
+                            )
+                    else:
+                        if reconciliation_mode == "incremental":
+                            reconciliation_method = "incremental_fallback_full"
+                            logger.warning(
+                                f"(T{p_worker_id}):Delta not eligible for "
+                                f"{datestr}; using full replacement: "
+                                f"{delta_fallback_reason}"
+                            )
+                        if force_replace_at_db:
+                            deleted_rows = delete_for_date(datestr)
+                            logger.info(
+                                f"(T{p_worker_id}):Deleted from readings table "
+                                f"for {datestr}: {deleted_rows} rows"
+                            )
+                            replace_day = True
+                        logger.info(
+                            f"(T{p_worker_id}):Loading hydrology data for "
+                            f"{datestr} - {len(df)} rows"
+                        )
+                        status_summary, insupd_summary = threaded_insert(
+                            df,
+                            chunk_size=20000,
+                            max_workers=8,
+                            ea_datasource=f"hydro-{datestr}",
+                            app=app,
+                            worker_id=p_worker_id,
+                            bulk_load=replace_day or (not date_exists),
+                        )
                     t1 = time.perf_counter()
                     logger.info(f"(T{p_worker_id}):Status summary for {datestr}: {dict(sorted(status_summary.items()))}")
                     logger.info(f"(T{p_worker_id}):Action summary for {datestr}: {dict(sorted(insupd_summary.items()))}")
@@ -636,6 +949,13 @@ def get_hydrology_readings_loop(upto:int = 3,
                         before_row_count=before_row_count,
                         source_row_count=source_row_count,
                         source_sha256=source_sha256,
+                        previous_source_row_count=previous_source_row_count,
+                        source_delta_added=source_delta_added,
+                        source_delta_changed=source_delta_changed,
+                        source_delta_deleted=source_delta_deleted,
+                        reconciliation_method=reconciliation_method,
+                        delta_eligible=delta_eligible,
+                        delta_fallback_reason=delta_fallback_reason,
                         rows_deleted=deleted_rows,
                         rows_inserted=insupd_summary.get("inserted", 0),
                         rows_updated=insupd_summary.get("updated", 0),
@@ -1051,7 +1371,7 @@ def insert_chunk(chunk_df: pd.DataFrame,
             )
 
             conflict_stmt = stmt.on_conflict_do_update(
-                index_elements=['measure', 'r_datetime'],
+                index_elements=['notation', 'r_datetime'],
                 set_=update_dict,
                 where=where_clause
             )  #.returning(literal_column('xmax'))   # PostgreSQL special system column
