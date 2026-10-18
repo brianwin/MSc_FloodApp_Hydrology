@@ -725,6 +725,8 @@ def get_hydrology_readings_loop(upto:int = 3,
     command = "hydrology-gaps" if gaps_only else (
         "hydrology-replace" if force_replace_at_db else "hydrology-load"
     )
+    if reconciliation_mode != "full":
+        command = f"{command}-{reconciliation_mode}"
     load_run_id = create_load_run(
         command=command,
         start_date=start_date,
@@ -946,6 +948,7 @@ def get_hydrology_readings_loop(upto:int = 3,
                     capture_daily_profile(
                         r_date=current_date,
                         load_run_id=load_run_id,
+                        profile_kind=reconciliation_method,
                         before_row_count=before_row_count,
                         source_row_count=source_row_count,
                         source_sha256=source_sha256,
@@ -1371,7 +1374,7 @@ def insert_chunk(chunk_df: pd.DataFrame,
             )
 
             conflict_stmt = stmt.on_conflict_do_update(
-                index_elements=['notation', 'r_datetime'],
+                index_elements=['measure', 'r_datetime'],
                 set_=update_dict,
                 where=where_clause
             )  #.returning(literal_column('xmax'))   # PostgreSQL special system column
