@@ -334,7 +334,8 @@ def compare_hydrology_source_frames(
     changed_keys = common_keys[changed_mask.to_numpy()]
 
     delta_keys = added_keys.append(changed_keys)
-    delta_df = new.loc[delta_keys].reset_index()
+    raw_new = new_df.set_index(_SOURCE_DELTA_KEY_COLUMNS, drop=True)
+    delta_df = raw_new.loc[delta_keys].reset_index()
 
     return {
         "previous_row_count": len(previous),
@@ -918,6 +919,7 @@ def get_hydrology_readings_loop(upto:int = 3,
                             insupd_summary["inserted"] = source_delta_added
                             insupd_summary["updated"] = source_delta_changed
                         except Exception as exc:
+                            incrementally_deleted_rows = deleted_rows
                             db.session.rollback()
                             logger.exception(
                                 f"(T{p_worker_id}):Incremental reconciliation "
@@ -928,7 +930,10 @@ def get_hydrology_readings_loop(upto:int = 3,
                                 f"Incremental application failed: {exc}"
                             )
                             reconciliation_method = "incremental_fallback_full"
-                            deleted_rows = delete_for_date(datestr)
+                            deleted_rows = (
+                                incrementally_deleted_rows
+                                + delete_for_date(datestr)
+                            )
                             replace_day = True
                             status_summary, insupd_summary = threaded_insert(
                                 df,
