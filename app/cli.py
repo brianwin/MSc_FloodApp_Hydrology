@@ -122,8 +122,17 @@ def _run_hydrology_loader(**kwargs):
 @click.option('--force_replace',
               prompt='Force upload of EA data and replace existing file (Y/n)',
               default=False, show_default=True)
+@click.option(
+    '--reconciliation-mode',
+    type=click.Choice(['full', 'shadow', 'incremental']),
+    default='full',
+    show_default=True,
+    help='Database reconciliation strategy for changed source files.',
+)
 @with_appcontext
-def get_hydrology_data_command(force_start_date, force_end_date, force_replace):
+def get_hydrology_data_command(
+    force_start_date, force_end_date, force_replace, reconciliation_mode
+):
     """Get 'reading' data from the hydrology API"""
     if not force_end_date:
         force_end_date = force_start_date
@@ -135,15 +144,25 @@ def get_hydrology_data_command(force_start_date, force_end_date, force_replace):
                                     force_start_date=force_start_date,
                                     force_end_date=force_end_date,
                                     force_replace=force_replace,
-                                    force_replace_at_db=True
+                                    force_replace_at_db=True,
+                                    reconciliation_mode=reconciliation_mode
                                    )
 
 
 @click.command('get-hydrology-readings-data-latest')
 # These command line options are set in PyCharm CLI run configuration parameters
 @click.option('--num_days_before_last_reading', default=14, help="Update changes, insert new data")
+@click.option(
+    '--reconciliation-mode',
+    type=click.Choice(['full', 'shadow', 'incremental']),
+    default='full',
+    show_default=True,
+    help='Database reconciliation strategy for changed source files.',
+)
 @with_appcontext
-def get_hydrology_data_latest_command(num_days_before_last_reading):
+def get_hydrology_data_latest_command(
+    num_days_before_last_reading, reconciliation_mode
+):
     """Get 'reading' data from the hydrology API"""
     # noinspection PyProtectedMember
     app = current_app._get_current_object()
@@ -155,7 +174,8 @@ def get_hydrology_data_latest_command(num_days_before_last_reading):
                                     force_start_date=force_start_date,
                                     force_end_date=force_end_date,
                                     force_replace=True,
-                                    force_replace_at_db=True
+                                    force_replace_at_db=True,
+                                    reconciliation_mode=reconciliation_mode
                                    )
 
 
