@@ -62,6 +62,10 @@ def _daily_statistics(r_date):
 def capture_daily_profile(
     *, r_date, load_run_id=None, profile_kind="post_load", status="succeeded",
     before_row_count=None, source_row_count=None, source_sha256=None,
+    previous_source_row_count=None, source_delta_added=None,
+    source_delta_changed=None, source_delta_deleted=None,
+    reconciliation_method=None, delta_eligible=None,
+    delta_fallback_reason=None,
     rows_deleted=0, rows_inserted=0, rows_updated=0, rows_affected=0,
     error_message=None
 ):
@@ -74,6 +78,13 @@ def capture_daily_profile(
         before_row_count=before_row_count,
         source_row_count=source_row_count,
         source_sha256=source_sha256,
+        previous_source_row_count=previous_source_row_count,
+        source_delta_added=source_delta_added,
+        source_delta_changed=source_delta_changed,
+        source_delta_deleted=source_delta_deleted,
+        reconciliation_method=reconciliation_method,
+        delta_eligible=delta_eligible,
+        delta_fallback_reason=delta_fallback_reason,
         after_row_count=stats.row_count,
         station_count=stats.station_count,
         measure_count=stats.measure_count,
