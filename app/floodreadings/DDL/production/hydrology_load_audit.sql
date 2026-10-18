@@ -25,6 +25,13 @@ CREATE TABLE IF NOT EXISTS production.hydrology_daily_profile (
     before_row_count BIGINT,
     source_row_count BIGINT,
     source_sha256 VARCHAR(64),
+    previous_source_row_count BIGINT,
+    source_delta_added BIGINT,
+    source_delta_changed BIGINT,
+    source_delta_deleted BIGINT,
+    reconciliation_method TEXT,
+    delta_eligible BOOLEAN,
+    delta_fallback_reason TEXT,
     after_row_count BIGINT,
     station_count INTEGER,
     measure_count INTEGER,
@@ -39,6 +46,20 @@ CREATE TABLE IF NOT EXISTS production.hydrology_daily_profile (
 
 ALTER TABLE production.hydrology_daily_profile
     ADD COLUMN IF NOT EXISTS source_sha256 VARCHAR(64);
+ALTER TABLE production.hydrology_daily_profile
+    ADD COLUMN IF NOT EXISTS previous_source_row_count BIGINT;
+ALTER TABLE production.hydrology_daily_profile
+    ADD COLUMN IF NOT EXISTS source_delta_added BIGINT;
+ALTER TABLE production.hydrology_daily_profile
+    ADD COLUMN IF NOT EXISTS source_delta_changed BIGINT;
+ALTER TABLE production.hydrology_daily_profile
+    ADD COLUMN IF NOT EXISTS source_delta_deleted BIGINT;
+ALTER TABLE production.hydrology_daily_profile
+    ADD COLUMN IF NOT EXISTS reconciliation_method TEXT;
+ALTER TABLE production.hydrology_daily_profile
+    ADD COLUMN IF NOT EXISTS delta_eligible BOOLEAN;
+ALTER TABLE production.hydrology_daily_profile
+    ADD COLUMN IF NOT EXISTS delta_fallback_reason TEXT;
 
 CREATE INDEX IF NOT EXISTS hydrology_daily_profile_date_idx
     ON production.hydrology_daily_profile (r_date, recorded_at);
