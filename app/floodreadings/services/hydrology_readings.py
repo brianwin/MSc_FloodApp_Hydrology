@@ -579,7 +579,8 @@ def _latest_successful_checksum_profile(r_date):
 
 
 def _record_unchanged_profile(
-    *, r_date, load_run_id, previous_profile, source_row_count, source_sha256
+    *, r_date, load_run_id, previous_profile, source_row_count, source_sha256,
+    source_delta=None, reconciliation_mode="full"
 ):
     """Record a verified checksum match without rescanning or changing readings."""
     profile = HydrologyDailyProfile(
@@ -590,6 +591,29 @@ def _record_unchanged_profile(
         before_row_count=previous_profile.after_row_count,
         source_row_count=source_row_count,
         source_sha256=source_sha256,
+        previous_source_row_count=(
+            source_delta.get("previous_row_count") if source_delta else None
+        ),
+        source_delta_added=(
+            source_delta.get("added") if source_delta else None
+        ),
+        source_delta_changed=(
+            source_delta.get("changed") if source_delta else None
+        ),
+        source_delta_deleted=(
+            source_delta.get("deleted") if source_delta else None
+        ),
+        reconciliation_method=(
+            f"unchanged_{reconciliation_mode}"
+            if reconciliation_mode != "full" else "unchanged"
+        ),
+        delta_eligible=(
+            source_delta.get("source_eligible") if source_delta else None
+        ),
+        delta_fallback_reason=(
+            source_delta.get("source_ineligible_reason")
+            if source_delta else None
+        ),
         after_row_count=previous_profile.after_row_count,
         station_count=previous_profile.station_count,
         measure_count=previous_profile.measure_count,
@@ -791,6 +815,8 @@ def get_hydrology_readings_loop(upto:int = 3,
                             previous_profile=previous_profile,
                             source_row_count=source_row_count,
                             source_sha256=source_sha256,
+                            source_delta=source_delta,
+                            reconciliation_mode=reconciliation_mode,
                         )
                         completed_dates.append(current_date)
                         current_date += datetime.timedelta(days=1)
