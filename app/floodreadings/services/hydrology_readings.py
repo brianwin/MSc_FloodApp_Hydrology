@@ -921,13 +921,15 @@ def get_hydrology_readings_loop(upto:int = 3,
                         except Exception as exc:
                             incrementally_deleted_rows = deleted_rows
                             db.session.rollback()
-                            logger.exception(
+                            error_detail = getattr(exc, "orig", exc)
+                            logger.warning(
                                 f"(T{p_worker_id}):Incremental reconciliation "
-                                f"failed for {datestr}; falling back to full replacement"
+                                f"failed for {datestr}: {error_detail}; "
+                                "falling back to full replacement"
                             )
                             delta_eligible = False
                             delta_fallback_reason = (
-                                f"Incremental application failed: {exc}"
+                                f"Incremental application failed: {error_detail}"
                             )
                             reconciliation_method = "incremental_fallback_full"
                             deleted_rows = (
@@ -1405,7 +1407,7 @@ def insert_chunk(chunk_df: pd.DataFrame,
             )
 
             conflict_stmt = stmt.on_conflict_do_update(
-                index_elements=['measure', 'r_datetime'],
+                index_elements=['notation', 'r_datetime'],
                 set_=update_dict,
                 where=where_clause
             )  #.returning(literal_column('xmax'))   # PostgreSQL special system column
@@ -1422,9 +1424,10 @@ def insert_chunk(chunk_df: pd.DataFrame,
         #t1 = time.perf_counter()
         #logger.info(f"DB insert time for chunk {chunk_num}: {t1 - t0:.2f}s")
         #logger.info(f"Chunk {chunk_num}: inserted {len(readings)} records")
-    except Exception as e:
+    except Exception as exc:
         session.rollback()
-        logger.exception(f"Chunk {chunk_num}: failed with error: {e}")
+        error_detail = getattr(exc, "orig", exc)
+        logger.error("Chunk %s failed: %s", chunk_num, error_detail)
         raise
     finally:
         session.close()
