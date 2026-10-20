@@ -69,12 +69,17 @@ def setup_logging():
         },
     )
 
+    file_formatter = logging.Formatter(
+        "%(asctime)-24s - %(levelname)-8s - %(filename)-15s:%(lineno)-4d "
+        "- %(funcName)-30s - %(message)s"
+    )
+
     # ---- File Handler ----
     #file_handler = logging.FileHandler('floodWatch.log')
     #file_handler = RotatingFileHandler('floodWatch.log', maxBytes=5*1024*1024, backupCount=3) # 5MB per file, keep last 3 backups
     file_handler = TimedRotatingFileHandler('floodWatch3.log', when='midnight', interval=1, backupCount=7)  # Rotate every midnight, keep last 7 days
     file_handler.setLevel(logging.INFO)  # Only log INFO and above to file
-    file_handler.setFormatter(formatter)
+    file_handler.setFormatter(file_formatter)
     logger.addHandler(file_handler)
 
     # ---- Console Handler ----
