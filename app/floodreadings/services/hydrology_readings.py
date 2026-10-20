@@ -388,6 +388,8 @@ def get_hydrology_readings(
     force_replace: bool = False,
     analyze_source_delta: bool = False,
     refresh_after_days: int = 7,
+    latest_data_date: datetime.date | None = None,
+    always_refresh_recent_days: int = 14,
 ) -> pd.DataFrame | None:
     """Retrieve and validate one daily readings file from the EA Hydrology API.
 
@@ -413,8 +415,26 @@ def get_hydrology_readings(
     filepath = os.path.join(save_folder, filename)
     logger.debug(f"source_path={filepath}")
 
+    source_date = datetime.date.fromisoformat(datestr)
+    data_age_days = (
+        (latest_data_date - source_date).days
+        if latest_data_date is not None else None
+    )
+    is_recent_data = (
+        always_refresh_recent_days > 0
+        and data_age_days is not None
+        and data_age_days < always_refresh_recent_days
+    )
+
     reuse_existing_file = os.path.exists(filepath) and not force_replace
-    if (
+    if os.path.exists(filepath) and force_replace and is_recent_data:
+        logger.info(
+            "Data date is within the newest %s-day window ending %s; "
+            "bypassing the source-file refresh interval",
+            always_refresh_recent_days,
+            latest_data_date,
+        )
+    elif (
         os.path.exists(filepath)
         and force_replace
         and refresh_after_days > 0
@@ -657,10 +677,13 @@ def get_hydrology_readings_loop(upto:int = 3,
                                 force_replace:bool = False,
                                 force_replace_at_db:bool = False,
                                 reconciliation_mode:str = "full",
-                                refresh_after_days:int = 7
+                                refresh_after_days:int = 7,
+                                always_refresh_recent_days:int = 14
                                ):
     if refresh_after_days < 0:
         raise ValueError("refresh_after_days must be zero or greater")
+    if always_refresh_recent_days < 0:
+        raise ValueError("always_refresh_recent_days must be zero or greater")
     if reconciliation_mode not in {"full", "shadow", "incremental"}:
         raise ValueError(
             "reconciliation_mode must be one of: full, shadow, incremental"
@@ -702,6 +725,20 @@ def get_hydrology_readings_loop(upto:int = 3,
                 logger.info(f"(hydro) Fetching from {start_date} to {end_date}")
             else:
                 logger.info(f"(hydro) No new days to fetch")
+
+    latest_db_datetime = db.session.query(
+        func.max(ReadingHydro.r_datetime)
+    ).scalar()
+    latest_db_date = (
+        latest_db_datetime.date() if latest_db_datetime is not None else None
+    )
+    latest_data_date = max(
+        candidate for candidate in (latest_db_date, end_date)
+        if candidate is not None
+    )
+    logger.debug(
+        "Newest data date for refresh policy: %s", latest_data_date
+    )
 
     def date_in_db(d_date) -> bool:
         """Check if a specific date exists in the ReadingHydro table."""
@@ -808,6 +845,8 @@ def get_hydrology_readings_loop(upto:int = 3,
                             "shadow", "incremental"
                         },
                         refresh_after_days=refresh_after_days,
+                        latest_data_date=latest_data_date,
+                        always_refresh_recent_days=always_refresh_recent_days,
                     )
                     if df is None:
                         raise HydrologySourceUnavailable(
