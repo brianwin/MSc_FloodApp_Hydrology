@@ -208,7 +208,8 @@ def get_hydrology_data_latest_command(
                                     force_replace=True,
                                     force_replace_at_db=True,
                                     reconciliation_mode=reconciliation_mode,
-                                    refresh_after_days=refresh_after_days
+                                    refresh_after_days=refresh_after_days,
+                                    always_refresh_recent_days=always_refresh_recent_days
                                    )
 
 
