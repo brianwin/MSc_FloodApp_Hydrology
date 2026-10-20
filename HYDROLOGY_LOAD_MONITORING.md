@@ -284,9 +284,10 @@ That value should equal both `source_row_count` and `after_row_count`.
 ### Source refresh interval
 
 Existing validated daily CSV files are downloaded again only when their archive
-modification time is at least seven days old. This applies when source
-replacement is requested and avoids repeatedly downloading the same recent
-files.
+modification time is at least seven days old. The interval does not apply to
+data dates within 14 days of the newest date known to the database/request:
+those recent dates are always downloaded because EA commonly adds or amends
+readings during that period.
 
 The default can be changed per run:
 
@@ -300,6 +301,8 @@ flask get-hydrology-readings-data \
 ```
 
 Use `--refresh-after-days 0` to bypass the interval and download every
-requested source file. A cached file is always parsed and validated before
-reuse; an invalid cached file is not protected by the interval and is replaced
-only after a valid download is ready.
+requested source file. Use `--always-refresh-recent-days 0` to disable the
+recent-data exception, or another positive value to change its window. A
+cached file is always parsed and validated before reuse; an invalid cached file
+is not protected by the interval and is replaced only after a valid download
+is ready.
