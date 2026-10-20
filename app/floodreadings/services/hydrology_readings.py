@@ -387,6 +387,7 @@ def get_hydrology_readings(
     save_basefolder: str = "readings_hydrology_tn/hydrology",
     force_replace: bool = False,
     analyze_source_delta: bool = False,
+    refresh_after_days: int = 7,
 ) -> pd.DataFrame | None:
     """Retrieve and validate one daily readings file from the EA Hydrology API.
 
@@ -412,8 +413,25 @@ def get_hydrology_readings(
     filepath = os.path.join(save_folder, filename)
     logger.debug(f"source_path={filepath}")
 
-    if os.path.exists(filepath) and not force_replace:
-        logger.info("filepath found; validating existing local file")
+    reuse_existing_file = os.path.exists(filepath) and not force_replace
+    if (
+        os.path.exists(filepath)
+        and force_replace
+        and refresh_after_days > 0
+    ):
+        file_age_seconds = max(0.0, time.time() - os.path.getmtime(filepath))
+        file_age_days = file_age_seconds / (24 * 60 * 60)
+        if file_age_days < refresh_after_days:
+            reuse_existing_file = True
+            logger.info(
+                "Source file is %.1f days old; skipping download because it is "
+                "within the %s-day refresh interval",
+                file_age_days,
+                refresh_after_days,
+            )
+
+    if reuse_existing_file:
+        logger.info("Validating existing local file")
         try:
             df = pd.read_csv(filepath, low_memory=False, dtype=str)
             _validate_hydrology_dataframe(df, datestr, filepath)
@@ -638,8 +656,11 @@ def get_hydrology_readings_loop(upto:int = 3,
                                 force_end_date: datetime.date = None,
                                 force_replace:bool = False,
                                 force_replace_at_db:bool = False,
-                                reconciliation_mode:str = "full"
+                                reconciliation_mode:str = "full",
+                                refresh_after_days:int = 7
                                ):
+    if refresh_after_days < 0:
+        raise ValueError("refresh_after_days must be zero or greater")
     if reconciliation_mode not in {"full", "shadow", "incremental"}:
         raise ValueError(
             "reconciliation_mode must be one of: full, shadow, incremental"
@@ -786,6 +807,7 @@ def get_hydrology_readings_loop(upto:int = 3,
                         analyze_source_delta=reconciliation_mode in {
                             "shadow", "incremental"
                         },
+                        refresh_after_days=refresh_after_days,
                     )
                     if df is None:
                         raise HydrologySourceUnavailable(
