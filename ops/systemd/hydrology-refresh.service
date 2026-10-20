@@ -1,0 +1,13 @@
+[Unit]
+Description=Daily EA hydrology incremental refresh
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=brian
+Group=brian
+WorkingDirectory=/home/brian/PycharmProjects/MSc_FloodApp_Hydrology
+Environment=TZ=Europe/London
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/bash /home/brian/PycharmProjects/MSc_FloodApp_Hydrology/ops/run_hydrology_daily_refresh.sh
