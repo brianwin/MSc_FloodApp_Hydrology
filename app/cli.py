@@ -130,6 +130,13 @@ def _run_hydrology_loader(**kwargs):
     help='Skip downloading a validated source file refreshed within this many days; use 0 to download regardless.',
 )
 @click.option(
+    '--always-refresh-recent-days',
+    type=click.IntRange(min=0),
+    default=14,
+    show_default=True,
+    help='Always download dates within this many days of the newest data date.',
+)
+@click.option(
     '--reconciliation-mode',
     type=click.Choice(['full', 'shadow', 'incremental']),
     default='full',
@@ -139,7 +146,7 @@ def _run_hydrology_loader(**kwargs):
 @with_appcontext
 def get_hydrology_data_command(
     force_start_date, force_end_date, force_replace, refresh_after_days,
-    reconciliation_mode
+    always_refresh_recent_days, reconciliation_mode
 ):
     """Get 'reading' data from the hydrology API"""
     if not force_end_date:
@@ -154,7 +161,8 @@ def get_hydrology_data_command(
                                     force_replace=force_replace,
                                     force_replace_at_db=True,
                                     reconciliation_mode=reconciliation_mode,
-                                    refresh_after_days=refresh_after_days
+                                    refresh_after_days=refresh_after_days,
+                                    always_refresh_recent_days=always_refresh_recent_days
                                    )
 
 
@@ -169,6 +177,13 @@ def get_hydrology_data_command(
     help='Skip downloading a validated source file refreshed within this many days; use 0 to download regardless.',
 )
 @click.option(
+    '--always-refresh-recent-days',
+    type=click.IntRange(min=0),
+    default=14,
+    show_default=True,
+    help='Always download dates within this many days of the newest data date.',
+)
+@click.option(
     '--reconciliation-mode',
     type=click.Choice(['full', 'shadow', 'incremental']),
     default='full',
@@ -177,7 +192,8 @@ def get_hydrology_data_command(
 )
 @with_appcontext
 def get_hydrology_data_latest_command(
-    num_days_before_last_reading, refresh_after_days, reconciliation_mode
+    num_days_before_last_reading, refresh_after_days,
+    always_refresh_recent_days, reconciliation_mode
 ):
     """Get 'reading' data from the hydrology API"""
     # noinspection PyProtectedMember
@@ -213,11 +229,18 @@ def get_hydrology_data_latest_command(
     show_default=True,
     help='Skip downloading a validated source file refreshed within this many days; use 0 to download regardless.',
 )
+@click.option(
+    '--always-refresh-recent-days',
+    type=click.IntRange(min=0),
+    default=14,
+    show_default=True,
+    help='Always download dates within this many days of the newest data date.',
+)
 
 @with_appcontext
 def get_hydrology_data_gaps_command(
     gaps_only, force_start_date, force_end_date, force_replace,
-    refresh_after_days
+    refresh_after_days, always_refresh_recent_days
 ):
     """Get 'reading' data from the hydrology API"""
     # noinspection PyProtectedMember
@@ -228,7 +251,8 @@ def get_hydrology_data_gaps_command(
                                     force_start_date=force_start_date.date() if force_start_date is not None else None,
                                     force_end_date  =force_end_date.date() if force_end_date  is not None else None,
                                     force_replace=force_replace,
-                                    refresh_after_days=refresh_after_days
+                                    refresh_after_days=refresh_after_days,
+                                    always_refresh_recent_days=always_refresh_recent_days
                                    )
 
 
