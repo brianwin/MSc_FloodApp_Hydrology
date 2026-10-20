@@ -732,12 +732,15 @@ def get_hydrology_readings_loop(upto:int = 3,
     latest_db_date = (
         latest_db_datetime.date() if latest_db_datetime is not None else None
     )
-    latest_data_date = max(
-        candidate for candidate in (latest_db_date, end_date)
-        if candidate is not None
+    # Anchor the mutable tail to the database state before this run starts.
+    # A requested future end date must not make established historical files
+    # appear older than they were relative to the last loaded data.
+    latest_data_date = (
+        latest_db_date if latest_db_date is not None else end_date
     )
     logger.debug(
-        "Newest data date for refresh policy: %s", latest_data_date
+        "Pre-run database data-date anchor for refresh policy: %s",
+        latest_data_date,
     )
 
     def date_in_db(d_date) -> bool:
