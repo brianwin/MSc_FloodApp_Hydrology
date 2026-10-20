@@ -283,11 +283,22 @@ That value should equal both `source_row_count` and `after_row_count`.
 
 ### Source refresh interval
 
-Existing validated daily CSV files are downloaded again only when their archive
-modification time is at least seven days old. The interval does not apply to
-data dates within 14 days of the newest date known to the database/request:
-those recent dates are always downloaded because EA commonly adds or amends
-readings during that period.
+The refresh decision keeps file age and data age separate:
+
+- file age is the time since the archived CSV was downloaded;
+- data age is the distance between the CSV's data date and the maximum
+  database data date captured before the run begins.
+
+Existing validated CSV files outside the newest 14 database data dates are
+reused only while their file age is under seven days. Once seven days old they
+are downloaded and compared again. CSV files within the newest 14 database
+data dates are always downloaded because EA commonly adds or amends readings
+during that period. Missing files are always downloaded.
+
+The requested end date does not move the 14-day anchor. This matters during
+catch-up runs: new dates beyond the pre-run database maximum are downloaded
+because their files are missing, while the mutable tail remains anchored to
+the last date that was already loaded.
 
 The default can be changed per run:
 
