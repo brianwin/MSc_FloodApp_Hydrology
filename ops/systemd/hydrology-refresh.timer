@@ -1,0 +1,10 @@
+[Unit]
+Description=Run EA hydrology refresh daily at 03:00
+
+[Timer]
+OnCalendar=*-*-* 03:00:00 Europe/London
+Persistent=true
+Unit=hydrology-refresh.service
+
+[Install]
+WantedBy=timers.target

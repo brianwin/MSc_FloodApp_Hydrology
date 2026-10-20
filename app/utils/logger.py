@@ -7,6 +7,26 @@ from threading import Event
 
 from colorlog import ColoredFormatter
 
+class SelectiveColoredFormatter(logging.Formatter):
+    """Apply colour to selected INFO milestones without colouring routine output."""
+
+    def __init__(self, fmt, log_colors):
+        super().__init__()
+        self.normal = ColoredFormatter(fmt, log_colors=log_colors)
+        blue_colors = dict(log_colors, INFO="bold_blue")
+        green_colors = dict(log_colors, INFO="bold_green")
+        self.blue = ColoredFormatter(fmt, log_colors=blue_colors)
+        self.green = ColoredFormatter(fmt, log_colors=green_colors)
+
+    def format(self, record):
+        highlight = getattr(record, "highlight_color", None)
+        if highlight == "blue":
+            return self.blue.format(record)
+        if highlight == "green":
+            return self.green.format(record)
+        return self.normal.format(record)
+
+
 # Global objects for queue-based logging (to a persistent open db connection)
 _log_queue = Queue()
 _stop_event = Event()
@@ -37,22 +57,29 @@ def setup_logging():
     #formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(funcName)s - %(message)s')
     #formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(funcName)s - %(message)s')
     #formatter = logging.Formatter('%(asctime)-24s - %(levelname)-8s - %(filename)-15s:%(lineno)-4d - %(funcName)-30s - %(message)s')
-    formatter = ColoredFormatter("%(log_color)s%(asctime)-24s - %(levelname)-8s - %(filename)-15s:%(lineno)-4d - %(funcName)-30s - %(message)s",
-                                 log_colors={
-                                     'DEBUG': 'cyan',
-                                     'INFO': 'white',
-                                     'WARNING': 'yellow',
-                                     'ERROR': 'red',
-                                     'CRITICAL': 'bold_red',
-                                 }
-                                )
+    formatter = SelectiveColoredFormatter(
+        "%(log_color)s%(asctime)-24s - %(levelname)-8s - "
+        "%(filename)-15s:%(lineno)-4d - %(funcName)-30s - %(message)s",
+        log_colors={
+            'DEBUG': 'cyan',
+            'INFO': 'white',
+            'WARNING': 'yellow',
+            'ERROR': 'red',
+            'CRITICAL': 'bold_red',
+        },
+    )
+
+    file_formatter = logging.Formatter(
+        "%(asctime)-24s - %(levelname)-8s - %(filename)-15s:%(lineno)-4d "
+        "- %(funcName)-30s - %(message)s"
+    )
 
     # ---- File Handler ----
     #file_handler = logging.FileHandler('floodWatch.log')
     #file_handler = RotatingFileHandler('floodWatch.log', maxBytes=5*1024*1024, backupCount=3) # 5MB per file, keep last 3 backups
     file_handler = TimedRotatingFileHandler('floodWatch3.log', when='midnight', interval=1, backupCount=7)  # Rotate every midnight, keep last 7 days
     file_handler.setLevel(logging.INFO)  # Only log INFO and above to file
-    file_handler.setFormatter(formatter)
+    file_handler.setFormatter(file_formatter)
     logger.addHandler(file_handler)
 
     # ---- Console Handler ----
