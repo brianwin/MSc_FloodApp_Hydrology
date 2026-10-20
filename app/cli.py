@@ -4,6 +4,7 @@ from flask.cli import with_appcontext
 from flask import current_app
 from app.extensions import db
 import datetime
+from collections import Counter
 
 from .all_stations.services import load_hyd_station_data_from_ea, load_hyd_measure_data_from_ea
 from .all_stations.services import load_fld_station_data_from_ea, load_fld_measure_data_from_ea
@@ -14,7 +15,11 @@ from .floodreadings.services import (
     get_hydrology_readings_loop,
     HydrologyPartialLoadError,
 )
-from .floodreadings.models import ReadingHydro
+from .floodreadings.models import (
+    HydrologyDailyProfile,
+    HydrologyLoadRun,
+    ReadingHydro,
+)
 from .climatology.services import run_climatology_range, run_climatology_baseline, run_climatology_baseline_weibull
 
 from sqlalchemy.sql import func
@@ -255,6 +260,123 @@ def get_hydrology_data_gaps_command(
                                     refresh_after_days=refresh_after_days,
                                     always_refresh_recent_days=always_refresh_recent_days
                                    )
+
+
+@click.command("review-hydrology-reconciliation")
+@click.option("--start-date", type=click.DateTime(formats=["%Y-%m-%d"]), required=True)
+@click.option("--end-date", type=click.DateTime(formats=["%Y-%m-%d"]), required=True)
+@with_appcontext
+def review_hydrology_reconciliation_command(start_date, end_date):
+    """Summarise reconciliation outcomes recorded during an observation period."""
+    start_day = start_date.date()
+    end_day = end_date.date()
+    if end_day < start_day:
+        raise click.BadParameter("end-date must not precede start-date")
+
+    start_at = datetime.datetime.combine(
+        start_day, datetime.time.min, tzinfo=datetime.timezone.utc
+    )
+    end_at = datetime.datetime.combine(
+        end_day + datetime.timedelta(days=1),
+        datetime.time.min,
+        tzinfo=datetime.timezone.utc,
+    )
+
+    profiles = (
+        db.session.query(HydrologyDailyProfile)
+        .filter(
+            HydrologyDailyProfile.recorded_at >= start_at,
+            HydrologyDailyProfile.recorded_at < end_at,
+        )
+        .order_by(HydrologyDailyProfile.recorded_at, HydrologyDailyProfile.id)
+        .all()
+    )
+    runs = (
+        db.session.query(HydrologyLoadRun)
+        .filter(
+            HydrologyLoadRun.started_at >= start_at,
+            HydrologyLoadRun.started_at < end_at,
+        )
+        .all()
+    )
+
+    methods = Counter(
+        profile.reconciliation_method or profile.profile_kind
+        for profile in profiles
+    )
+    run_statuses = Counter(run.status for run in runs)
+    totals = {
+        "source added": sum(profile.source_delta_added or 0 for profile in profiles),
+        "source changed": sum(profile.source_delta_changed or 0 for profile in profiles),
+        "source deleted": sum(profile.source_delta_deleted or 0 for profile in profiles),
+        "database inserted": sum(profile.rows_inserted or 0 for profile in profiles),
+        "database updated": sum(profile.rows_updated or 0 for profile in profiles),
+        "database deleted": sum(profile.rows_deleted or 0 for profile in profiles),
+        "database affected": sum(profile.rows_affected or 0 for profile in profiles),
+    }
+
+    integrity_issues = []
+    for profile in profiles:
+        reasons = []
+        if (
+            profile.source_row_count is not None
+            and profile.after_row_count != profile.source_row_count
+        ):
+            reasons.append("source/after row counts differ")
+        if all(value is not None for value in (
+            profile.previous_source_row_count,
+            profile.source_delta_added,
+            profile.source_delta_deleted,
+            profile.source_row_count,
+        )):
+            expected = (
+                profile.previous_source_row_count
+                + profile.source_delta_added
+                - profile.source_delta_deleted
+            )
+            if expected != profile.source_row_count:
+                reasons.append("source delta arithmetic does not balance")
+        if profile.status != "succeeded":
+            reasons.append(f"status={profile.status}")
+        if reasons:
+            integrity_issues.append((profile, "; ".join(reasons)))
+
+    fallbacks = [
+        profile for profile in profiles
+        if profile.delta_fallback_reason
+    ]
+
+    click.echo(
+        f"Hydrology reconciliation review: {start_day} to {end_day}"
+    )
+    click.echo(
+        f"Load runs: {len(runs)} "
+        + ", ".join(
+            f"{status}={count}" for status, count in sorted(run_statuses.items())
+        )
+    )
+    click.echo(f"Daily profiles: {len(profiles)}")
+    for method, count in sorted(methods.items()):
+        click.echo(f"  {method}: {count}")
+    click.echo("Row changes:")
+    for label, value in totals.items():
+        click.echo(f"  {label}: {value}")
+    click.echo(f"Fallback profiles: {len(fallbacks)}")
+    for profile in fallbacks:
+        click.echo(
+            f"  {profile.recorded_at} {profile.r_date}: "
+            f"{profile.delta_fallback_reason}"
+        )
+    click.echo(f"Integrity issues: {len(integrity_issues)}")
+    for profile, reason in integrity_issues:
+        click.echo(
+            f"  {profile.recorded_at} {profile.r_date}: {reason}"
+        )
+
+    if integrity_issues:
+        raise click.ClickException(
+            f"Review found {len(integrity_issues)} integrity issue(s)"
+        )
 
 
 @click.command("profile-hydrology-readings")
