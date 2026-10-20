@@ -77,6 +77,7 @@ def create_app(config_class=DevelopmentConfig):
         get_hydrology_data_latest_command,
         get_hydrology_data_gaps_command,
         profile_hydrology_readings_command,
+        review_hydrology_reconciliation_command,
         backfill_hydrology_source_checksums_command,
         init_db_command,
         build_climatology_12h_command,
@@ -92,6 +93,7 @@ def create_app(config_class=DevelopmentConfig):
     app.cli.add_command(get_hydrology_data_latest_command)
     app.cli.add_command(get_hydrology_data_gaps_command)
     app.cli.add_command(profile_hydrology_readings_command)
+    app.cli.add_command(review_hydrology_reconciliation_command)
     app.cli.add_command(backfill_hydrology_source_checksums_command)
     app.cli.add_command(init_db_command)
     app.cli.add_command(build_climatology_12h_command)
