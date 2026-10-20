@@ -949,6 +949,11 @@ def get_hydrology_readings_loop(upto:int = 3,
                         delta_eligible = not eligibility_failures
                         delta_fallback_reason = "; ".join(eligibility_failures) or None
 
+                    initial_full_load = (
+                        source_delta is not None
+                        and source_delta.get("previous_row_count") is None
+                        and before_row_count == 0
+                    )
                     use_incremental = (
                         reconciliation_mode == "incremental" and delta_eligible
                     )
@@ -1014,15 +1019,24 @@ def get_hydrology_readings_loop(upto:int = 3,
                             )
                     else:
                         if reconciliation_mode == "incremental":
-                            reconciliation_method = "incremental_fallback_full"
-                            logger.warning(
-                                f"(T{p_worker_id}):Incremental reconciliation "
-                                f"is unavailable for {datestr}; using full replacement"
-                            )
-                            for failure in eligibility_failures:
-                                logger.warning(
-                                    f"(T{p_worker_id}):Fallback reason: {failure}"
+                            if initial_full_load:
+                                reconciliation_method = "full"
+                                logger.info(
+                                    f"(T{p_worker_id}):No previous source data "
+                                    f"for {datestr}; performing initial full load"
                                 )
+                            else:
+                                reconciliation_method = "incremental_fallback_full"
+                                logger.warning(
+                                    f"(T{p_worker_id}):Incremental reconciliation "
+                                    f"is unavailable for {datestr}; "
+                                    "using full replacement"
+                                )
+                                for failure in eligibility_failures:
+                                    logger.warning(
+                                        f"(T{p_worker_id}):Fallback reason: "
+                                        f"{failure}"
+                                    )
                         if force_replace_at_db:
                             deleted_rows = delete_for_date(datestr)
                             logger.info(
