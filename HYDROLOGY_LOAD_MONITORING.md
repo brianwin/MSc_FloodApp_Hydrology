@@ -279,3 +279,27 @@ previous_source_row_count + source_delta_added - source_delta_deleted
 ```
 
 That value should equal both `source_row_count` and `after_row_count`.
+
+
+### Source refresh interval
+
+Existing validated daily CSV files are downloaded again only when their archive
+modification time is at least seven days old. This applies when source
+replacement is requested and avoids repeatedly downloading the same recent
+files.
+
+The default can be changed per run:
+
+```bash
+flask get-hydrology-readings-data \
+  --force_start_date 2026-06-01 \
+  --force_end_date 2026-10-17 \
+  --force_replace true \
+  --reconciliation-mode incremental \
+  --refresh-after-days 7
+```
+
+Use `--refresh-after-days 0` to bypass the interval and download every
+requested source file. A cached file is always parsed and validated before
+reuse; an invalid cached file is not protected by the interval and is replaced
+only after a valid download is ready.
