@@ -398,7 +398,10 @@ def get_hydrology_readings(
     fully written, parsed, validated, and hashed. os.replace then publishes the
     validated file atomically.
     """
-    logger.info(f"Processing date: {datestr}")
+    logger.info(
+        f"Processing date: {datestr}",
+        extra={"highlight_color": "blue"},
+    )
     logger.debug(
         f"source_root={save_basefolder}; force_replace={force_replace}"
     )
@@ -569,6 +572,7 @@ def get_hydrology_readings(
                 source_delta["added"],
                 source_delta["changed"],
                 source_delta["deleted"],
+                extra={"highlight_color": "green"},
             )
 
         t3 = time.perf_counter()
@@ -1157,7 +1161,10 @@ def get_hydrology_readings_loop(upto:int = 3,
             )
         raise
     #listener.stop()
-    logger.info(f"Completed processing (audit run {load_run_id})")
+    logger.info(
+        f"Completed processing (audit run {load_run_id})",
+        extra={"highlight_color": "green"},
+    )
     return load_run_id
 
 
