@@ -1,0 +1,13 @@
+[Unit]
+Description=Review 30-day hydrology reconciliation observation
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=brian
+Group=brian
+WorkingDirectory=/home/brian/PycharmProjects/MSc_FloodApp_Hydrology
+Environment=TZ=Europe/London
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/brian/miniforge3/envs/tf312/bin/flask review-hydrology-reconciliation --start-date 2026-10-20 --end-date 2026-11-18
