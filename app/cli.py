@@ -123,6 +123,13 @@ def _run_hydrology_loader(**kwargs):
               prompt='Force upload of EA data and replace existing file (Y/n)',
               default=False, show_default=True)
 @click.option(
+    '--refresh-after-days',
+    type=click.IntRange(min=0),
+    default=7,
+    show_default=True,
+    help='Skip downloading a validated source file refreshed within this many days; use 0 to download regardless.',
+)
+@click.option(
     '--reconciliation-mode',
     type=click.Choice(['full', 'shadow', 'incremental']),
     default='full',
@@ -131,7 +138,8 @@ def _run_hydrology_loader(**kwargs):
 )
 @with_appcontext
 def get_hydrology_data_command(
-    force_start_date, force_end_date, force_replace, reconciliation_mode
+    force_start_date, force_end_date, force_replace, refresh_after_days,
+    reconciliation_mode
 ):
     """Get 'reading' data from the hydrology API"""
     if not force_end_date:
@@ -145,13 +153,21 @@ def get_hydrology_data_command(
                                     force_end_date=force_end_date,
                                     force_replace=force_replace,
                                     force_replace_at_db=True,
-                                    reconciliation_mode=reconciliation_mode
+                                    reconciliation_mode=reconciliation_mode,
+                                    refresh_after_days=refresh_after_days
                                    )
 
 
 @click.command('get-hydrology-readings-data-latest')
 # These command line options are set in PyCharm CLI run configuration parameters
 @click.option('--num_days_before_last_reading', default=14, help="Update changes, insert new data")
+@click.option(
+    '--refresh-after-days',
+    type=click.IntRange(min=0),
+    default=7,
+    show_default=True,
+    help='Skip downloading a validated source file refreshed within this many days; use 0 to download regardless.',
+)
 @click.option(
     '--reconciliation-mode',
     type=click.Choice(['full', 'shadow', 'incremental']),
@@ -161,7 +177,7 @@ def get_hydrology_data_command(
 )
 @with_appcontext
 def get_hydrology_data_latest_command(
-    num_days_before_last_reading, reconciliation_mode
+    num_days_before_last_reading, refresh_after_days, reconciliation_mode
 ):
     """Get 'reading' data from the hydrology API"""
     # noinspection PyProtectedMember
@@ -175,7 +191,8 @@ def get_hydrology_data_latest_command(
                                     force_end_date=force_end_date,
                                     force_replace=True,
                                     force_replace_at_db=True,
-                                    reconciliation_mode=reconciliation_mode
+                                    reconciliation_mode=reconciliation_mode,
+                                    refresh_after_days=refresh_after_days
                                    )
 
 
@@ -189,9 +206,19 @@ def get_hydrology_data_latest_command(
               required=False, help="End date (YYYY-MM-DD)"
              )
 @click.option('--force_replace', is_flag=True, default=False, help="Force replace existing data files from source")
+@click.option(
+    '--refresh-after-days',
+    type=click.IntRange(min=0),
+    default=7,
+    show_default=True,
+    help='Skip downloading a validated source file refreshed within this many days; use 0 to download regardless.',
+)
 
 @with_appcontext
-def get_hydrology_data_gaps_command(gaps_only, force_start_date, force_end_date, force_replace):
+def get_hydrology_data_gaps_command(
+    gaps_only, force_start_date, force_end_date, force_replace,
+    refresh_after_days
+):
     """Get 'reading' data from the hydrology API"""
     # noinspection PyProtectedMember
     app = current_app._get_current_object()
@@ -200,7 +227,8 @@ def get_hydrology_data_gaps_command(gaps_only, force_start_date, force_end_date,
                                     gaps_only=gaps_only,
                                     force_start_date=force_start_date.date() if force_start_date is not None else None,
                                     force_end_date  =force_end_date.date() if force_end_date  is not None else None,
-                                    force_replace=force_replace
+                                    force_replace=force_replace,
+                                    refresh_after_days=refresh_after_days
                                    )
 
 
