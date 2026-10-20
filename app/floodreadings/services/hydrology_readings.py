@@ -903,22 +903,25 @@ def get_hydrology_readings_loop(upto:int = 3,
                     delta_eligible = False
                     delta_fallback_reason = None
 
+                    eligibility_failures = []
                     if reconciliation_mode in {"shadow", "incremental"}:
-                        eligibility_failures = []
                         if not source_delta:
                             eligibility_failures.append(
                                 "No comparable previous source archive"
                             )
                         elif not source_delta.get("source_eligible"):
+                            # Source provenance is the root prerequisite. When
+                            # it is absent, profile and row-count comparisons
+                            # are consequential rather than additional causes.
                             eligibility_failures.append(
                                 source_delta.get("source_ineligible_reason")
                                 or "Source files are not safely comparable"
                             )
-                        if previous_profile is None:
+                        elif previous_profile is None:
                             eligibility_failures.append(
                                 "No successful checksum-linked database profile"
                             )
-                        elif source_delta:
+                        else:
                             if (
                                 previous_profile.source_sha256
                                 != source_delta.get("previous_source_sha256")
@@ -935,15 +938,14 @@ def get_hydrology_readings_loop(upto:int = 3,
                                     "Previous source row count does not match "
                                     "the last successful database profile"
                                 )
-                        if (
-                            source_delta
-                            and before_row_count
-                            != source_delta.get("previous_row_count")
-                        ):
-                            eligibility_failures.append(
-                                "Current database row count does not match "
-                                "the previous source file"
-                            )
+                            if (
+                                before_row_count
+                                != source_delta.get("previous_row_count")
+                            ):
+                                eligibility_failures.append(
+                                    "Current database row count does not match "
+                                    "the previous source file"
+                                )
                         delta_eligible = not eligibility_failures
                         delta_fallback_reason = "; ".join(eligibility_failures) or None
 
@@ -1014,10 +1016,13 @@ def get_hydrology_readings_loop(upto:int = 3,
                         if reconciliation_mode == "incremental":
                             reconciliation_method = "incremental_fallback_full"
                             logger.warning(
-                                f"(T{p_worker_id}):Delta not eligible for "
-                                f"{datestr}; using full replacement: "
-                                f"{delta_fallback_reason}"
+                                f"(T{p_worker_id}):Incremental reconciliation "
+                                f"is unavailable for {datestr}; using full replacement"
                             )
+                            for failure in eligibility_failures:
+                                logger.warning(
+                                    f"(T{p_worker_id}):Fallback reason: {failure}"
+                                )
                         if force_replace_at_db:
                             deleted_rows = delete_for_date(datestr)
                             logger.info(
